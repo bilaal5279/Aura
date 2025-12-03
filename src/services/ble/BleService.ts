@@ -1,5 +1,6 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import { BleManager, Device, ScanMode } from 'react-native-ble-plx';
+import RNBluetoothClassic from 'react-native-bluetooth-classic';
 import { backgroundTracker } from '../tracking/BackgroundTracker';
 
 class BleService {
@@ -90,6 +91,41 @@ class BleService {
 
     async getBluetoothState() {
         return this.manager.state();
+    }
+
+    async getBondedDevices(): Promise<Device[]> {
+        if (Platform.OS === 'android') {
+            try {
+                const bonded = await RNBluetoothClassic.getBondedDevices();
+                return bonded.map(d => ({
+                    id: d.address,
+                    name: d.name,
+                    localName: d.name,
+                    rssi: null,
+                    mtu: 23,
+                    manufacturerData: null,
+                    serviceData: null,
+                    serviceUUIDs: null,
+                    solicitedServiceUUIDs: null,
+                    overflowServiceUUIDs: null,
+                    txPowerLevel: null,
+                    isConnectable: null,
+                    rawScanRecord: null,
+                } as unknown as Device));
+            } catch (e) {
+                console.warn('Failed to get bonded devices via Classic', e);
+                return [];
+            }
+        }
+        return [];
+    }
+
+    async isDeviceConnected(deviceId: string): Promise<boolean> {
+        try {
+            return await this.manager.isDeviceConnected(deviceId);
+        } catch (e) {
+            return false;
+        }
     }
 }
 

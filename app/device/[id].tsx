@@ -252,6 +252,7 @@ const styles = StyleSheet.create({
         textShadowColor: 'rgba(0,0,0,0.5)',
         textShadowRadius: 10,
         fontVariant: ['tabular-nums'],
+        marginBottom: 16,
     },
     signalLabel: {
         fontSize: 18,

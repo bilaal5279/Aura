@@ -24,7 +24,6 @@ export default function Layout() {
           }}
         >
           <Stack.Screen name="index" options={{ title: 'Aura Radar', headerShown: false }} />
-          <Stack.Screen name="map" options={{ title: 'Time Machine' }} />
           <Stack.Screen name="settings" options={{ title: 'Settings' }} />
           <Stack.Screen name="device/[id]" options={{ headerShown: false }} />
         </Stack>
