@@ -96,6 +96,10 @@ class BleService {
     async getBondedDevices(): Promise<Device[]> {
         if (Platform.OS === 'android') {
             try {
+                if (!RNBluetoothClassic) {
+                    console.warn('RNBluetoothClassic is null. Make sure to rebuild the app.');
+                    return [];
+                }
                 const bonded = await RNBluetoothClassic.getBondedDevices();
                 return bonded.map(d => ({
                     id: d.address,
