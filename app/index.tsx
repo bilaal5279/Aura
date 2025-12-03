@@ -22,22 +22,9 @@ const calculateDistance = (rssi: number | null) => {
     return Math.pow(10, exponent);
 };
 
-const SignalIndicator = ({ isConnected }: { isConnected: boolean }) => {
-    return (
-        <View style={{ width: 40, height: 40, justifyContent: 'center', alignItems: 'center' }}>
-            <Canvas style={{ width: 40, height: 40 }}>
-                <Circle cx={20} cy={20} r={15} style="stroke" strokeWidth={2} color={COLORS.glass.border} />
-                {isConnected && (
-                    <Circle cx={20} cy={20} r={10} color="#00FF9D" opacity={0.8}>
-                        <Blur blur={4} />
-                    </Circle>
-                )}
-            </Canvas>
-        </View>
-    );
-};
 
-const DeviceItem = ({ item, isPro, isConnected, onPress }: { item: ScannedDevice, isPro: boolean, isConnected: boolean, onPress: () => void }) => {
+
+const DeviceItem = ({ item, isPro, onPress }: { item: ScannedDevice, isPro: boolean, onPress: () => void }) => {
     // Simple icon logic
     let icon = 'bluetooth';
     const name = (item.device.name || '').toLowerCase();
@@ -59,20 +46,15 @@ const DeviceItem = ({ item, isPro, isConnected, onPress }: { item: ScannedDevice
                         </View>
                         <View style={styles.textContainer}>
                             <Text style={[styles.deviceName, { color: '#FFFFFF' }]} numberOfLines={1}>
-                                {item.device.name || item.device.localName || 'Unknown Device'}
+                                {item.device.name || item.device.localName || item.customName || 'Unknown Device'}
                             </Text>
                             <Text style={[styles.deviceId, { color: '#AAAAAA' }]}>{item.device.id}</Text>
                             <View style={styles.statusRow}>
-                                <View style={[styles.statusDot, { backgroundColor: isConnected ? '#00FF9D' : COLORS.textSecondary }]} />
-                                <Text style={[styles.statusText, { color: isConnected ? '#00FF9D' : COLORS.textSecondary }]}>
-                                    {isConnected ? 'Connected' : 'Disconnected'}
-                                </Text>
                                 <Text style={styles.distanceText}>
-                                    • {distance ? `${distance.toFixed(1)}m away` : 'Paired'}
+                                    {distance ? `${distance.toFixed(1)}m away` : 'Signal Detected'}
                                 </Text>
                             </View>
                         </View>
-                        <SignalIndicator isConnected={isConnected} />
                     </View>
                 </GlassCard>
             </View>
@@ -117,20 +99,16 @@ export default function Dashboard() {
     // Grouping Logic
     const sections = [
         {
-            title: 'Connected Devices',
-            data: devices.filter(d => connectedIds.has(d.device.id))
-        },
-        {
             title: 'My Devices',
-            data: devices.filter(d => d.isBonded && !connectedIds.has(d.device.id))
+            data: devices.filter(d => d.isBonded)
         },
         {
             title: 'Found Devices',
-            data: devices.filter(d => !d.isBonded && !connectedIds.has(d.device.id) && (d.device.name || d.device.localName))
+            data: devices.filter(d => !d.isBonded && (d.device.name || d.device.localName))
         },
         {
             title: 'Unknown Signals',
-            data: devices.filter(d => !d.isBonded && !connectedIds.has(d.device.id) && !d.device.name && !d.device.localName)
+            data: devices.filter(d => !d.isBonded && !d.device.name && !d.device.localName)
         }
     ].filter(section => section.data.length > 0);
 
@@ -180,7 +158,6 @@ export default function Dashboard() {
                     <DeviceItem
                         item={item}
                         isPro={isPro}
-                        isConnected={connectedIds.has(item.device.id)}
                         onPress={() => handleDevicePress(item)}
                     />
                 )}
@@ -202,6 +179,9 @@ export default function Dashboard() {
             />
 
             <View style={styles.navContainer}>
+                <TouchableOpacity onPress={() => router.push('/faq' as any)} style={styles.button}>
+                    <Text style={styles.buttonText}>FAQ</Text>
+                </TouchableOpacity>
                 <TouchableOpacity onPress={() => router.push('/settings')} style={styles.button}>
                     <Text style={styles.buttonText}>Settings</Text>
                 </TouchableOpacity>

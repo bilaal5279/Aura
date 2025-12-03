@@ -1,10 +1,13 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import { BleManager, Device, ScanMode } from 'react-native-ble-plx';
-import RNBluetoothClassic from 'react-native-bluetooth-classic';
 import { backgroundTracker } from '../tracking/BackgroundTracker';
 
 class BleService {
     manager: BleManager;
+    // Map to track last seen time and RSSI for devices (Hybrid approach)
+    private lastSeenDevices: Map<string, { timestamp: number; rssi: number }> = new Map();
+    // Map to track last seen time by Name (for Dual-Mode devices with different MACs)
+    private lastSeenNames: Map<string, number> = new Map();
 
     constructor() {
         this.manager = new BleManager({
@@ -69,7 +72,56 @@ class BleService {
                 return;
             }
             if (device) {
+                // Update last seen map
+                if (device.id) {
+                    this.lastSeenDevices.set(device.id, {
+                        timestamp: Date.now(),
+                        rssi: device.rssi || -100
+                    });
+                }
+                // Update last seen by Name
+                if (device.name) {
+                    this.lastSeenNames.set(device.name, Date.now());
+                }
                 onDeviceFound(device);
+            }
+        });
+    }
+
+    /**
+     * Starts a targeted scan for a specific device to get real-time RSSI
+     * This is crucial for the "Hot/Cold" game feature
+     */
+    startDeviceSpecificScan(targetDeviceId: string, targetDeviceName: string | null, onUpdate: (rssi: number) => void) {
+        // Stop any existing scan first to avoid conflicts
+        this.manager.stopDeviceScan();
+
+        console.log(`Starting specific scan for ${targetDeviceId} / ${targetDeviceName}`);
+
+        this.manager.startDeviceScan(null, { scanMode: ScanMode.LowLatency }, (error, device) => {
+            if (error) {
+                console.warn('Specific Scan Error:', error);
+                return;
+            }
+
+            if (device) {
+                const matchesId = device.id === targetDeviceId;
+                const matchesName = targetDeviceName && (device.name === targetDeviceName || device.localName === targetDeviceName);
+
+                if (matchesId || matchesName) {
+                    const rssi = device.rssi || -100;
+
+                    // Update maps
+                    this.lastSeenDevices.set(targetDeviceId, { // Store under the requested ID for consistency
+                        timestamp: Date.now(),
+                        rssi: rssi
+                    });
+                    if (device.name) {
+                        this.lastSeenNames.set(device.name, Date.now());
+                    }
+
+                    onUpdate(rssi);
+                }
             }
         });
     }
@@ -93,67 +145,6 @@ class BleService {
         return this.manager.state();
     }
 
-    private mapClassicDevice(d: any): Device {
-        // Log connection status if present
-        if (d.connected !== undefined) {
-            console.log(`Classic Device ${d.name} (${d.address}) connected property: ${d.connected}`);
-        }
-
-        return {
-            id: d.address,
-            name: d.name,
-            localName: d.name,
-            rssi: null,
-            mtu: 23,
-            manufacturerData: null,
-            serviceData: null,
-            serviceUUIDs: null,
-            solicitedServiceUUIDs: null,
-            overflowServiceUUIDs: null,
-            txPowerLevel: null,
-            isConnectable: null,
-            rawScanRecord: null,
-            // Custom property passed through
-            isConnected: d.connected,
-        } as unknown as Device;
-    }
-
-    async getBondedDevices(): Promise<Device[]> {
-        if (Platform.OS === 'android') {
-            try {
-                const enabled = await RNBluetoothClassic.isBluetoothEnabled();
-                if (!enabled) return [];
-
-                const bonded = await RNBluetoothClassic.getBondedDevices();
-                if (bonded.length > 0) {
-                    console.log('Raw Bonded Device 0:', JSON.stringify(bonded[0]));
-                }
-                return bonded.map(d => this.mapClassicDevice(d));
-            } catch (e) {
-                console.warn('Failed to get bonded devices via Classic', e);
-                return [];
-            }
-        }
-        return [];
-    }
-
-    async getSystemConnectedDevices(): Promise<Device[]> {
-        if (Platform.OS === 'android') {
-            try {
-                const enabled = await RNBluetoothClassic.isBluetoothEnabled();
-                if (!enabled) return [];
-
-                const connected = await RNBluetoothClassic.getConnectedDevices();
-                console.log('System Connected Devices:', connected.length, connected.map(d => d.name));
-                return connected.map(d => this.mapClassicDevice(d));
-            } catch (e) {
-                console.warn('Failed to get system connected devices', e);
-                return [];
-            }
-        }
-        return [];
-    }
-
     async isDeviceConnected(deviceId: string): Promise<boolean> {
         // Method 1: Check BLE System Connected Devices (Common Services)
         try {
@@ -174,56 +165,18 @@ class BleService {
             console.warn('Failed to check connectedDevices', e);
         }
 
-        if (Platform.OS === 'android') {
-            try {
-                const enabled = await RNBluetoothClassic.isBluetoothEnabled();
-                if (enabled) {
-                    // Method 2: Check getConnectedDevice (Specific)
-                    try {
-                        const connectedDevice = await RNBluetoothClassic.getConnectedDevice(deviceId);
-                        if (connectedDevice) {
-                            console.log(`Classic Connection Confirmed for ${deviceId} (getConnectedDevice)`);
-                            return true;
-                        }
-                    } catch (e) {
-                        // This throws if not connected or error
-                    }
-
-                    // Method 3: Check list (Fallback)
-                    const connected = await RNBluetoothClassic.getConnectedDevices();
-                    if (connected.some(d => d.address === deviceId)) {
-                        console.log(`Classic Connection Found in List for ${deviceId}`);
-                        return true;
-                    }
-
-                    // Method 4: Check instance .isConnected() on Bonded Device
-                    try {
-                        const bonded = await RNBluetoothClassic.getBondedDevices();
-                        const device = bonded.find(d => d.address === deviceId);
-                        if (device) {
-                            // Check if isConnected is a function
-                            if (typeof device.isConnected === 'function') {
-                                const isInstanceConnected = await device.isConnected();
-                                console.log(`device.isConnected() for ${deviceId}: ${isInstanceConnected}`);
-                                if (isInstanceConnected) return true;
-                            } else {
-                                console.log(`device.isConnected is not a function on ${deviceId}`);
-                            }
-                        }
-                    } catch (e) {
-                        console.warn(`Failed instance check for ${deviceId}`, e);
-                    }
-                }
-
-                // Fallback to BLE check
-                const isBleConnected = await this.manager.isDeviceConnected(deviceId);
-                console.log(`Checking connection for ${deviceId}: Classic=False, BLE=${isBleConnected}`);
-                return isBleConnected;
-            } catch (e) {
-                return false;
+        // Method 2: Check "Last Seen" (Hybrid Approach)
+        // If we saw it in a BLE scan recently (e.g., last 15 seconds), it's effectively "Connected" or at least "Nearby"
+        const lastSeen = this.lastSeenDevices.get(deviceId);
+        if (lastSeen) {
+            const timeSinceLastSeen = Date.now() - lastSeen.timestamp;
+            if (timeSinceLastSeen < 15000) { // 15 seconds threshold
+                console.log(`Device ${deviceId} seen ${timeSinceLastSeen}ms ago via BLE scan. Considering connected.`);
+                return true;
             }
         }
 
+        // Method 3: Direct BLE check
         try {
             return await this.manager.isDeviceConnected(deviceId);
         } catch (e) {

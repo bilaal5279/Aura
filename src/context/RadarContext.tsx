@@ -8,6 +8,7 @@ export interface ScannedDevice {
     rssi: number | null;
     lastSeen: number;
     isBonded?: boolean; // Added to track bonded status
+    customName?: string; // Added for identified devices (e.g. Apple)
 }
 
 interface RadarContextType {
@@ -82,12 +83,39 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     // Check if we already know this device is bonded
                     const existing = newMap.get(device.id);
                     const isBonded = existing?.isBonded || false;
+                    let customName = existing?.customName;
+
+                    // Apple Device Identification
+                    // Apple Company ID is 0x004C. In Little Endian (BLE standard), it's 4C 00.
+                    // Manufacturer Data is Base64 encoded.
+                    if (!device.name && !device.localName && device.manufacturerData) {
+                        try {
+                            // Simple Base64 decode to check first few bytes
+                            // We don't need a full library, just need to check the header.
+                            // 0x4C = 'T', 0x00 = 0.
+                            // Base64 for 4C 00 is "TA==" or similar depending on following bytes.
+                            // Better to use a buffer approach if possible, but for now we can try to match the raw string
+                            // or use a lightweight decode.
+                            // Actually, let's use the Buffer polyfill if available, or just check the raw base64 if it's consistent.
+                            // "TAA" is 4C 00 00. "TAB" is 4C 00 01.
+                            // The most robust way without Buffer is to just check if it looks like Apple data.
+                            // But let's try to be cleaner.
+                            // Since we can't easily import Buffer in Expo Go without setup, let's use a simple check.
+                            // Apple data usually starts with "TA" (which decodes to 4C...)
+                            if (device.manufacturerData.startsWith('TA')) {
+                                customName = 'Apple Device';
+                            }
+                        } catch (e) {
+                            // Ignore decode errors
+                        }
+                    }
 
                     newMap.set(device.id, {
                         device,
                         rssi: smoothedRssi,
                         lastSeen: now,
                         isBonded,
+                        customName,
                     });
                     return newMap;
                 });
@@ -122,38 +150,20 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         const interval = setInterval(async () => {
             const now = Date.now();
 
-            // 1. Get bonded (paired) devices
-            const bondedDevices = await bleService.getBondedDevices();
-
-            // 1b. Get system connected devices (Classic) - This fixes the "Connected" status
-            const systemConnected = await bleService.getSystemConnectedDevices();
+            // 1. Get connected devices (BLE)
             const newConnectedIds = new Set<string>();
 
-            for (const d of systemConnected) {
-                newConnectedIds.add(d.id);
-            }
+            // Check connection status for all currently tracked devices
+            const currentDevices = Array.from(devicesMapRef.current.values());
 
-            // 2. Check connection status for bonded devices
-            for (const d of bondedDevices) {
-                // Method A: Check if it was in the "System Connected" list (Socket)
-                if (newConnectedIds.has(d.id)) continue;
-
-                // Method B: Check if the device object itself says it's connected (Property)
-                if ((d as any).isConnected) {
-                    console.log(`Device ${d.name} has isConnected=true property`);
-                    newConnectedIds.add(d.id);
-                    continue;
-                }
-
-                // Method C: Active Check (BLE fallback)
-                // We skip the heavy Classic check here since we already checked the list and property
-                const isConnected = await bleService.isDeviceConnected(d.id);
+            for (const d of currentDevices) {
+                const isConnected = await bleService.isDeviceConnected(d.device.id);
                 if (isConnected) {
-                    newConnectedIds.add(d.id);
+                    newConnectedIds.add(d.device.id);
                 }
             }
 
-            // 2b. Poll RSSI for connected devices to show distance
+            // 2. Poll RSSI for connected devices to show distance
             const connectedRssiMap = new Map<string, number>();
             for (const id of newConnectedIds) {
                 const rssi = await bleService.readRSSI(id);
@@ -169,45 +179,19 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 const newMap = new Map(prev);
                 let changed = false;
 
-                // Ensure all bonded devices are in the map
-                for (const d of bondedDevices) {
-                    const polledRssi = connectedRssiMap.get(d.id);
-
-                    if (!newMap.has(d.id)) {
-                        newMap.set(d.id, {
-                            device: d,
-                            rssi: polledRssi ?? null, // Use polled RSSI if available
-                            lastSeen: now,
-                            isBonded: true,
-                        });
+                // Update RSSI for connected devices if we have it
+                for (const [id, rssi] of connectedRssiMap.entries()) {
+                    const existing = newMap.get(id);
+                    if (existing && existing.rssi !== rssi) {
+                        newMap.set(id, { ...existing, rssi, lastSeen: now });
                         changed = true;
-                    } else {
-                        const existing = newMap.get(d.id)!;
-                        let newRssi = existing.rssi;
-
-                        // If we have a fresh polled RSSI, use it
-                        if (polledRssi !== undefined) {
-                            newRssi = polledRssi;
-                        }
-
-                        if (!existing.isBonded || existing.rssi !== newRssi) {
-                            newMap.set(d.id, { ...existing, isBonded: true, rssi: newRssi });
-                            changed = true;
-                        }
-
-                        // If connected, update lastSeen to keep it alive
-                        if (newConnectedIds.has(d.id)) {
-                            newMap.set(d.id, { ...existing, lastSeen: now, isBonded: true, rssi: newRssi });
-                            changed = true;
-                        }
                     }
                 }
 
                 // Cleanup old devices
                 for (const [id, data] of newMap.entries()) {
-                    // If connected OR bonded, keep it alive
-                    // (User wants to see paired devices even if not connected)
-                    if (newConnectedIds.has(id) || data.isBonded) {
+                    // If connected, keep it alive
+                    if (newConnectedIds.has(id)) {
                         continue;
                     }
 

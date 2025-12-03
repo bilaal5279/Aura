@@ -5,7 +5,7 @@ import { COLORS } from '../constants/theme';
 
 interface GlassCardProps {
     width: number;
-    height: number;
+    height?: number;
     borderRadius?: number;
     intensity?: number;
     style?: ViewStyle;
@@ -20,14 +20,27 @@ export const GlassCard: React.FC<GlassCardProps> = ({
     style,
     children,
 }) => {
+    const [layoutHeight, setLayoutHeight] = React.useState(height || 0);
+
+    const handleLayout = (event: any) => {
+        if (!height) {
+            setLayoutHeight(event.nativeEvent.layout.height);
+        }
+    };
+
+    const activeHeight = height || layoutHeight;
+
     return (
-        <View style={[{ width, height, overflow: 'hidden', borderRadius }, style]}>
+        <View
+            style={[{ width, height, overflow: 'hidden', borderRadius }, style]}
+            onLayout={handleLayout}
+        >
             <Canvas style={StyleSheet.absoluteFill}>
-                <RoundedRect x={0} y={0} width={width} height={height} r={borderRadius} color={COLORS.glass.background}>
+                <RoundedRect x={0} y={0} width={width} height={activeHeight} r={borderRadius} color={COLORS.glass.background}>
                 </RoundedRect>
                 <BackdropFilter
                     filter={<Blur blur={intensity} />}
-                    clip={rrect(rect(0, 0, width, height), borderRadius, borderRadius)}
+                    clip={rrect(rect(0, 0, width, activeHeight), borderRadius, borderRadius)}
                 >
                     <Fill color={COLORS.glass.background} />
                 </BackdropFilter>
@@ -36,7 +49,7 @@ export const GlassCard: React.FC<GlassCardProps> = ({
                     x={0}
                     y={0}
                     width={width}
-                    height={height}
+                    height={activeHeight}
                     r={borderRadius}
                     style="stroke"
                     strokeWidth={1}

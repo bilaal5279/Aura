@@ -12,6 +12,10 @@ import { useRadar } from '../../src/hooks/useRadar';
 const { width, height } = Dimensions.get('window');
 const CENTER = vec(width / 2, height / 3);
 
+import { bleService } from '../../src/services/ble/BleService';
+
+import { PaywallModal } from '../../src/components/PaywallModal';
+
 export default function DeviceDetailScreen() {
     const { id, name } = useLocalSearchParams();
     const router = useRouter();
@@ -27,9 +31,24 @@ export default function DeviceDetailScreen() {
 
     // Use live data or fallback to last known
     const activeDevice = deviceData || lastKnownDevice.current;
-
-    const rssi = activeDevice?.rssi || -100;
     const deviceName = activeDevice?.device.name || activeDevice?.device.localName || (name as string) || 'Unknown Device';
+
+    const [liveRssi, setLiveRssi] = useState<number | null>(null);
+
+    useEffect(() => {
+        if (id) {
+            // Start specific scan for this device
+            bleService.startDeviceSpecificScan(id as string, deviceName, (rssi: number) => {
+                setLiveRssi(rssi);
+            });
+
+            return () => {
+                bleService.stopScan();
+            };
+        }
+    }, [id, deviceName]);
+
+    const rssi = liveRssi !== null ? liveRssi : (activeDevice?.rssi || -100);
 
     // Calibration: -100 (Far) to -50 (Near)
     // Normalized 0 to 1
@@ -37,6 +56,9 @@ export default function DeviceDetailScreen() {
 
     const [soundEnabled, setSoundEnabled] = useState(false);
     const [vibrationEnabled, setVibrationEnabled] = useState(true);
+    const [backgroundTrackingEnabled, setBackgroundTrackingEnabled] = useState(false);
+    const [showPaywall, setShowPaywall] = useState(false);
+    const [isPro, setIsPro] = useState(false); // Mock Pro status
     const [sound, setSound] = useState<Audio.Sound>();
 
     // Animation Values
@@ -114,6 +136,20 @@ export default function DeviceDetailScreen() {
     };
 
     const orbColor = getOrbColor(signalStrength);
+
+    const handleBackgroundToggle = (value: boolean) => {
+        if (value && !isPro) {
+            setShowPaywall(true);
+            return;
+        }
+        setBackgroundTrackingEnabled(value);
+    };
+
+    const handlePurchase = () => {
+        setIsPro(true);
+        setShowPaywall(false);
+        setBackgroundTrackingEnabled(true);
+    };
 
     return (
         <View style={styles.container}>
@@ -203,7 +239,26 @@ export default function DeviceDetailScreen() {
                         thumbColor="#FFF"
                     />
                 </View>
+
+                <View style={styles.controlRow}>
+                    <View style={styles.controlText}>
+                        <Text style={styles.controlTitle}>Background Tracking</Text>
+                        <Text style={styles.controlSubtitle}>Notify when left behind</Text>
+                    </View>
+                    <Switch
+                        value={backgroundTrackingEnabled}
+                        onValueChange={handleBackgroundToggle}
+                        trackColor={{ false: '#333', true: orbColor }}
+                        thumbColor="#FFF"
+                    />
+                </View>
             </View>
+
+            <PaywallModal
+                visible={showPaywall}
+                onClose={() => setShowPaywall(false)}
+                onPurchase={handlePurchase}
+            />
         </View>
     );
 }
@@ -234,7 +289,7 @@ const styles = StyleSheet.create({
         letterSpacing: 1,
     },
     visualizerContainer: {
-        height: height * 0.5,
+        height: height * 0.45, // Reduced slightly to give more space below
         width: width,
         alignItems: 'center',
         justifyContent: 'center',
@@ -243,23 +298,25 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: SPACING.xl,
-        height: 80,
+        height: 100, // Fixed height to prevent layout shifts
     },
     signalValue: {
-        fontSize: 64,
+        fontSize: 48, // Reduced from 64 to prevent cutoff
         fontWeight: 'bold',
         color: '#FFF',
         textShadowColor: 'rgba(0,0,0,0.5)',
         textShadowRadius: 10,
         fontVariant: ['tabular-nums'],
-        marginBottom: 16,
+        marginBottom: 8,
     },
     signalLabel: {
-        fontSize: 18,
+        fontSize: 16, // Reduced slightly
         fontWeight: '900',
-        letterSpacing: 3,
+        letterSpacing: 2,
         marginTop: 4,
         marginBottom: 16,
+        textAlign: 'center',
+        paddingHorizontal: 20,
     },
     barContainer: {
         width: 200,
@@ -282,7 +339,8 @@ const styles = StyleSheet.create({
         flex: 1,
         paddingHorizontal: SPACING.l,
         justifyContent: 'flex-start',
-        gap: SPACING.l,
+        gap: SPACING.m, // Reduced gap slightly
+        paddingBottom: 40,
     },
     controlRow: {
         flexDirection: 'row',
