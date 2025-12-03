@@ -1,30 +1,20 @@
-import { PermissionsAndroid, Platform } from 'react-native';
-import Geolocation from 'react-native-geolocation-service';
+import * as Location from 'expo-location';
 import { database, LocationHistory } from '../../db';
 
 class LocationService {
     async requestPermissions() {
-        if (Platform.OS === 'ios') {
-            const auth = await Geolocation.requestAuthorization('whenInUse');
-            return auth === 'granted';
+        try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            return status === 'granted';
+        } catch (error) {
+            console.error('Error requesting location permissions:', error);
+            return false;
         }
-
-        if (Platform.OS === 'android') {
-            const granted = await PermissionsAndroid.request(
-                PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-            );
-            return granted === PermissionsAndroid.RESULTS.GRANTED;
-        }
-        return false;
     }
 
-    getCurrentLocation(): Promise<Geolocation.GeoPosition> {
-        return new Promise((resolve, reject) => {
-            Geolocation.getCurrentPosition(
-                (position) => resolve(position),
-                (error) => reject(error),
-                { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
-            );
+    getCurrentLocation(): Promise<Location.LocationObject> {
+        return Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
         });
     }
 

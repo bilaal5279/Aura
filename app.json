@@ -85,8 +85,7 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true,
-            "playServicesLocationVersion": "21.0.1"
+            "usesCleartextTraffic": true
           },
           "ios": {
             "useFrameworks": "static"
