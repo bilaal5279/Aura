@@ -10,8 +10,8 @@ import { COLORS, SPACING } from '../src/constants/theme';
 import { ScannedDevice, useRadar } from '../src/hooks/useRadar';
 import { bleService } from '../src/services/ble/BleService';
 
-const calculateDistance = (rssi: number) => {
-    if (rssi === 0) return -1.0;
+const calculateDistance = (rssi: number | null) => {
+    if (!rssi || rssi === 0) return null;
 
     const txPower = -60; // Reference RSSI at 1 meter
     const n = 2.5; // Path loss exponent (2.0-4.0 for indoors)
@@ -67,7 +67,9 @@ const DeviceItem = ({ item, isPro, isConnected, onPress }: { item: ScannedDevice
                                 <Text style={[styles.statusText, { color: isConnected ? '#00FF9D' : COLORS.textSecondary }]}>
                                     {isConnected ? 'Connected' : 'Disconnected'}
                                 </Text>
-                                <Text style={styles.distanceText}>• {distance.toFixed(1)}m away</Text>
+                                <Text style={styles.distanceText}>
+                                    • {distance ? `${distance.toFixed(1)}m away` : 'Paired'}
+                                </Text>
                             </View>
                         </View>
                         <SignalIndicator isConnected={isConnected} />
