@@ -15,7 +15,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.devicefinder.tracker",
+      "bundleIdentifier": "com.digitalsprout.findmydevice",
       "icon": {
         "light": "./assets/images/ios-light.png",
         "dark": "./assets/images/ios-dark.png",
@@ -33,7 +33,8 @@
         "NSBluetoothPeripheralUsageDescription": "Aura needs Bluetooth to track your devices.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Aura needs location to map where you lost your devices.",
         "NSLocationAlwaysUsageDescription": "Aura needs location to map where you lost your devices.",
-        "NSLocationWhenInUseUsageDescription": "Aura needs location to map where you lost your devices."
+        "NSLocationWhenInUseUsageDescription": "Aura needs location to map where you lost your devices.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -127,7 +128,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "5344380f-c8f3-436e-a405-9175905a923e"
+        "projectId": "92b67cc6-2b00-4cd7-b91a-ac3e3b326bfe"
       }
     }
   }
