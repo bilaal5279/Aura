@@ -5,7 +5,6 @@ import React, { useState } from 'react';
 import { Alert, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { GlassCard } from '../src/components/GlassCard';
 import { NotifyFoundModal } from '../src/components/NotifyFoundModal';
-import { PaywallModal } from '../src/components/PaywallModal';
 import { ScanningAnimation } from '../src/components/ScanningAnimation';
 import { COLORS, SPACING } from '../src/constants/theme';
 import { useTheme } from '../src/context/ThemeContext';
@@ -88,11 +87,46 @@ const DeviceItem = ({ item, isPro, onPress }: { item: ScannedDevice, isPro: bool
 export default function Dashboard() {
     const router = useRouter();
     const { colors, isDark } = useTheme();
-    const { isScanning, devices, bluetoothState, connectedIds, trackedDevices, toggleTracking, updateDeviceSettings, backgroundTrackingEnabled } = useRadar();
-    const [showPaywall, setShowPaywall] = useState(false);
-    const [isPro, setIsPro] = useState(true);
+    const { isScanning, devices, bluetoothState, connectedIds, trackedDevices, toggleTracking, updateDeviceSettings, backgroundTrackingEnabled, isPro, showPaywall } = useRadar();
     const [selectedDevice, setSelectedDevice] = useState<ScannedDevice | null>(null);
     const [showNotifyModal, setShowNotifyModal] = useState(false);
+
+    // Stable sort order for unknown devices
+    const [stableUnknownIds, setStableUnknownIds] = React.useState<string[]>([]);
+    const devicesRef = React.useRef(devices);
+    devicesRef.current = devices;
+
+    React.useEffect(() => {
+        let currentInterval: any;
+
+        const updateOrder = () => {
+            const currentUnknown = devicesRef.current.filter((d: ScannedDevice) => !d.isBonded && !d.device.name && !d.device.localName);
+            setStableUnknownIds(currentUnknown.map(d => d.device.id));
+        };
+
+        // Initial update
+        updateOrder();
+
+        // Warm-up: Update frequently for the first 5 seconds to show devices immediately
+        currentInterval = setInterval(updateOrder, 500);
+
+        // After 5 seconds, switch to stable 4-second updates
+        const timeout = setTimeout(() => {
+            clearInterval(currentInterval);
+            currentInterval = setInterval(updateOrder, 4000);
+        }, 5000);
+
+        return () => {
+            clearInterval(currentInterval);
+            clearTimeout(timeout);
+        };
+    }, []);
+
+    const unknownSectionData = React.useMemo(() => {
+        return stableUnknownIds
+            .map(id => devices.find(d => d.device.id === id))
+            .filter((d): d is ScannedDevice => !!d);
+    }, [devices, stableUnknownIds]);
 
     const handleDevicePress = (device: ScannedDevice) => {
         if (device.rssi === null) {
@@ -103,7 +137,7 @@ export default function Dashboard() {
             // Device is live
             if (!isPro) {
                 setSelectedDevice(device);
-                setShowPaywall(true);
+                showPaywall();
             } else {
                 router.push({
                     pathname: `/device/${device.device.id}` as any,
@@ -116,7 +150,7 @@ export default function Dashboard() {
     const handleNotifyConfirm = () => {
         if (!isPro) {
             setShowNotifyModal(false);
-            setTimeout(() => setShowPaywall(true), 300); // Small delay for smooth transition
+            setTimeout(() => showPaywall(), 300); // Small delay for smooth transition
         } else {
             if (!backgroundTrackingEnabled) {
                 Alert.alert(
@@ -144,13 +178,6 @@ export default function Dashboard() {
         }
     };
 
-    const handlePurchase = () => {
-        setIsPro(true);
-        setShowPaywall(false);
-        // If we were in the middle of a notify flow, maybe we should resume it?
-        // For now, user can just click again.
-    };
-
     const enableBluetooth = async () => {
         await bleService.enableBluetooth();
     };
@@ -167,7 +194,7 @@ export default function Dashboard() {
         },
         {
             title: 'Unknown Signals',
-            data: devices.filter((d: ScannedDevice) => !d.isBonded && !d.device.name && !d.device.localName)
+            data: unknownSectionData
         }
     ].filter(section => section.data.length > 0);
 
@@ -197,7 +224,7 @@ export default function Dashboard() {
                             textShadowColor: isDark ? COLORS.primary : 'transparent',
                             textShadowRadius: isDark ? 15 : 0
                         }
-                    ]}>Device Finder</Text>
+                    ]}>Find My Device</Text>
                     <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
                         {bluetoothState === 'PoweredOn'
                             ? (isScanning ? 'Scanning Environment...' : 'Ready to Scan')
@@ -205,7 +232,7 @@ export default function Dashboard() {
                     </Text>
                 </View>
                 <TouchableOpacity
-                    onPress={() => setShowPaywall(true)}
+                    onPress={() => showPaywall()}
                     style={[
                         styles.upgradeButton,
                         {
@@ -270,11 +297,6 @@ export default function Dashboard() {
                     <Text style={[styles.buttonText, { color: colors.text }]}>Settings</Text>
                 </TouchableOpacity>
             </View>
-
-            <PaywallModal
-                visible={showPaywall}
-                onClose={() => setShowPaywall(false)}
-            />
 
             <NotifyFoundModal
                 visible={showNotifyModal}

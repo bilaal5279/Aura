@@ -3,6 +3,7 @@ import React, { createContext, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { Device } from 'react-native-ble-plx';
 import Purchases, { CustomerInfo, PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
+import RevenueCatUI from 'react-native-purchases-ui';
 import { bleService } from '../services/ble/BleService';
 import { notificationService } from '../services/notifications/NotificationService';
 import { RssiSmoother } from '../services/tracking/KalmanFilter';
@@ -40,6 +41,7 @@ interface RadarContextType {
     currentOffering: PurchasesOffering | null;
     purchasePackage: (pack: PurchasesPackage) => Promise<void>;
     restorePro: () => Promise<void>;
+    showPaywall: () => Promise<void>;
 }
 
 const RadarContext = createContext<RadarContextType>({
@@ -61,10 +63,14 @@ const RadarContext = createContext<RadarContextType>({
     currentOffering: null,
     purchasePackage: async () => { },
     restorePro: async () => { },
+    showPaywall: async () => { },
 });
 
 export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [isScanning, setIsScanning] = useState(false);
+    const isScanningRef = useRef(false); // Ref to track scanning state in intervals
+    const lastScanUpdateRef = useRef(Date.now()); // Ref to track last scan activity
+
     const [devicesMap, setDevicesMap] = useState<Map<string, ScannedDevice>>(new Map());
 
     // Use a mutable Map ref as the source of truth to ensure background updates work
@@ -156,6 +162,19 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
     };
 
+    const showPaywall = async () => {
+        try {
+            // Use the imperative API to present the paywall
+            // This launches a native activity/modal which avoids the ViewModelStoreOwner crash
+            // that happens when embedding the component in a React Native Modal.
+            await RevenueCatUI.presentPaywall({
+                displayCloseButton: true,
+            });
+        } catch (e) {
+            console.warn('Failed to present paywall:', e);
+        }
+    };
+
     useEffect(() => {
         trackedDevicesRef.current = trackedDevices;
     }, [trackedDevices]);
@@ -225,7 +244,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     const startScan = async () => {
-        if (isScanning) return;
+        if (isScanningRef.current) return;
 
         const state = await bleService.getBluetoothState();
         setBluetoothState(state);
@@ -253,9 +272,14 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         setIsScanning(true);
+        isScanningRef.current = true;
+        lastScanUpdateRef.current = Date.now(); // Reset watchdog timer
+
         // console.log('Starting scan...');
         bleService.startScan((device) => {
             // console.log('Device found:', device.id, device.name, device.rssi); // Uncomment for verbose logging
+            lastScanUpdateRef.current = Date.now(); // Update watchdog timer
+
             if (device.rssi) {
                 const now = Date.now();
                 const currentMap = devicesRef.current;
@@ -326,6 +350,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const stopScan = () => {
         bleService.stopScan();
         setIsScanning(false);
+        isScanningRef.current = false;
     };
 
     useEffect(() => {
@@ -351,6 +376,23 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         const interval = setInterval(async () => {
             const now = Date.now();
+
+            // Watchdog: Check if scan is healthy
+            if (isScanningRef.current) {
+                const timeSinceLastUpdate = now - lastScanUpdateRef.current;
+                // If no updates for 15 seconds, restart scan
+                if (timeSinceLastUpdate > 15000) {
+                    console.log('[Radar] Scan watchdog triggered: restarting scan...');
+                    bleService.stopScan();
+                    // Small delay to ensure clean stop
+                    setTimeout(() => {
+                        // We call the internal logic of startScan without checking isScanningRef to force restart
+                        // But startScan checks isScanningRef. So we need to reset it or bypass.
+                        isScanningRef.current = false;
+                        startScan();
+                    }, 500);
+                }
+            }
 
             // 1. Get connected devices (BLE)
             const newConnectedIds = new Set<string>();
@@ -557,7 +599,8 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             isPro,
             currentOffering,
             purchasePackage,
-            restorePro
+            restorePro,
+            showPaywall
         }}>
             {children}
         </RadarContext.Provider>

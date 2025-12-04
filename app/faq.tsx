@@ -17,11 +17,11 @@ export default function FAQScreen() {
         },
         {
             question: "Why can't I see my device?",
-            answer: "Device Finder uses Bluetooth Low Energy (BLE) to detect devices. If your device is a classic Bluetooth device (like some older headphones) or is currently connected to another phone, it might not be advertising its presence. Ensure your device is powered on and not in 'sleep' mode."
+            answer: "Find My Device uses Bluetooth Low Energy (BLE) to detect devices. If your device is a classic Bluetooth device (like some older headphones) or is currently connected to another phone, it might not be advertising its presence. Ensure your device is powered on and not in 'sleep' mode."
         },
         {
             question: "What is Background Tracking?",
-            answer: "Background Tracking allows Device Finder to monitor your devices even when the app is closed. If you leave a tracked device behind, Device Finder will send you a notification. This is a Pro feature."
+            answer: "Background Tracking allows Find My Device to monitor your devices even when the app is closed. If you leave a tracked device behind, Find My Device will send you a notification. This is a Pro feature."
         },
         {
             question: "Why does the signal fluctuate?",

@@ -8,7 +8,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Dimensions, Modal, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { Easing, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import { Confetti } from '../../src/components/Confetti';
-import { PaywallModal } from '../../src/components/PaywallModal';
 import { COLORS, SPACING } from '../../src/constants/theme';
 import { DeviceSettings } from '../../src/context/RadarContext';
 import { useTheme } from '../../src/context/ThemeContext';
@@ -60,7 +59,7 @@ export default function DeviceDetailScreen() {
     // Normalized 0 to 1
     const signalStrength = Math.max(0, Math.min(1, (rssi + 100) / 50));
 
-    const { trackedDevices, toggleTracking, updateDeviceSettings, distanceUnit, backgroundTrackingEnabled } = useRadar();
+    const { trackedDevices, toggleTracking, updateDeviceSettings, distanceUnit, backgroundTrackingEnabled, isPro, showPaywall } = useRadar();
     const deviceSettings = trackedDevices.get(id as string);
     const isTracked = !!deviceSettings;
 
@@ -84,8 +83,6 @@ export default function DeviceDetailScreen() {
 
     const [soundEnabled, setSoundEnabled] = useState(false);
     const [vibrationEnabled, setVibrationEnabled] = useState(true);
-    const [showPaywall, setShowPaywall] = useState(false);
-    const [isPro, setIsPro] = useState(true); // Mock Pro status
     const [sound, setSound] = useState<Audio.Sound>();
     const [showSettings, setShowSettings] = useState(false);
     const [isFound, setIsFound] = useState(false);
@@ -99,7 +96,7 @@ export default function DeviceDetailScreen() {
 
     const handleToggleSetting = (setting: keyof DeviceSettings) => {
         if (!isPro) {
-            setShowPaywall(true);
+            showPaywall();
             return;
         }
 
@@ -198,11 +195,6 @@ export default function DeviceDetailScreen() {
     };
 
     const orbColor = getOrbColor(signalStrength);
-
-    const handlePurchase = () => {
-        setIsPro(true);
-        setShowPaywall(false);
-    };
 
     return (
         <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -353,11 +345,6 @@ export default function DeviceDetailScreen() {
                     </View>
                 </View>
             </Modal>
-
-            <PaywallModal
-                visible={showPaywall}
-                onClose={() => setShowPaywall(false)}
-            />
         </View>
     );
 }

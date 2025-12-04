@@ -1,9 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import { Stack, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React from 'react';
 import { Alert, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
-import { PaywallModal } from '../src/components/PaywallModal';
 import { COLORS, SPACING } from '../src/constants/theme';
 import { useTheme } from '../src/context/ThemeContext';
 import { useRadar } from '../src/hooks/useRadar';
@@ -11,14 +10,7 @@ import { useRadar } from '../src/hooks/useRadar';
 export default function SettingsScreen() {
     const router = useRouter();
     const { themeMode, setThemeMode, colors, isDark } = useTheme();
-    const { distanceUnit, updateDistanceUnit, backgroundTrackingEnabled, toggleBackgroundTracking, trackedDevices } = useRadar();
-    const [showPaywall, setShowPaywall] = useState(false);
-    const [isPro, setIsPro] = useState(false); // Mock pro status
-
-    const handlePurchase = () => {
-        setIsPro(true);
-        setShowPaywall(false);
-    };
+    const { distanceUnit, updateDistanceUnit, backgroundTrackingEnabled, toggleBackgroundTracking, trackedDevices, isPro, showPaywall } = useRadar();
 
     const handleToggleBackground = (enabled: boolean) => {
         if (!enabled && trackedDevices.size > 0) {
@@ -45,7 +37,7 @@ export default function SettingsScreen() {
     };
 
     const handleContactUs = () => {
-        Linking.openURL('mailto:support@devicefinder.app');
+        Linking.openURL('mailto:support@findmydevice.app');
     };
 
     return (
@@ -62,11 +54,11 @@ export default function SettingsScreen() {
             <ScrollView contentContainerStyle={styles.content}>
                 {/* Pro Banner */}
                 {!isPro && (
-                    <TouchableOpacity style={[styles.proBanner, { backgroundColor: isDark ? 'rgba(255, 215, 0, 0.15)' : 'rgba(0, 200, 83, 0.1)' }]} onPress={() => setShowPaywall(true)}>
+                    <TouchableOpacity style={[styles.proBanner, { backgroundColor: isDark ? 'rgba(255, 215, 0, 0.15)' : 'rgba(0, 200, 83, 0.1)' }]} onPress={() => showPaywall()}>
                         <View style={styles.proContent}>
                             <Ionicons name="diamond" size={24} color={isDark ? '#FFD700' : '#00C853'} />
                             <View style={styles.proTextContainer}>
-                                <Text style={[styles.proTitle, { color: isDark ? '#FFD700' : '#00C853' }]}>Upgrade to Device Finder Pro</Text>
+                                <Text style={[styles.proTitle, { color: isDark ? '#FFD700' : '#00C853' }]}>Upgrade to Find My Device Pro</Text>
                                 <Text style={[styles.proSubtitle, { color: isDark ? '#FFF' : '#666' }]}>Unlock background tracking & more</Text>
                             </View>
                         </View>
@@ -163,11 +155,6 @@ export default function SettingsScreen() {
 
                 <Text style={[styles.version, { color: colors.textSecondary }]}>Version 1.0.0</Text>
             </ScrollView>
-
-            <PaywallModal
-                visible={showPaywall}
-                onClose={() => setShowPaywall(false)}
-            />
         </View>
     );
 }
