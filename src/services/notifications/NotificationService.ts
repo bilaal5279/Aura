@@ -6,11 +6,14 @@ Notifications.setNotificationHandler({
         shouldShowAlert: true,
         shouldPlaySound: true,
         shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
     }),
 });
 
 class NotificationService {
     async requestPermissions() {
+        console.log('[NotificationService] Requesting permissions...');
         if (Platform.OS === 'android') {
             await Notifications.setNotificationChannelAsync('default', {
                 name: 'default',
@@ -30,6 +33,7 @@ class NotificationService {
     }
 
     async sendNotification(title: string, body: string) {
+        console.log(`[NotificationService] Sending notification: ${title} - ${body}`);
         await Notifications.scheduleNotificationAsync({
             content: {
                 title,

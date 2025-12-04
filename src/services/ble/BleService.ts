@@ -11,13 +11,13 @@ class BleService {
 
     constructor() {
         this.manager = new BleManager({
-            restoreStateIdentifier: 'AuraBackground',
+            restoreStateIdentifier: 'DeviceFinderBackground',
             restoreStateFunction: (restoredState) => {
                 if (restoredState == null) {
                     // BleManager was constructed for the first time.
                 } else {
                     // BleManager was restored. Check `restoredState.connectedPeripherals` to get connected devices.
-                    console.log('Restored state:', restoredState);
+                    // console.log('Restored state:', restoredState);
                 }
             },
         });
@@ -104,7 +104,7 @@ class BleService {
         // Stop any existing scan first to avoid conflicts
         this.manager.stopDeviceScan();
 
-        console.log(`Starting specific scan for ${targetDeviceId} / ${targetDeviceName}`);
+        // console.log(`Starting specific scan for ${targetDeviceId} / ${targetDeviceName}`);
 
         this.manager.startDeviceScan(null, { scanMode: ScanMode.LowLatency }, (error, device) => {
             if (error) {
@@ -139,12 +139,19 @@ class BleService {
     }
 
     async startBackgroundTracking() {
+        console.log('Background tracking active...');
         await backgroundTracker.start(async () => {
-            // In background, we might want to do a low-latency scan or check connection status
-            // For now, we just log. In a real app, this would check for lost devices.
-            console.log('Background tracking active...');
+            // This task runs in the background
+            // We don't need to do anything specific here as the interval in RadarContext
+            // will keep running as long as the app is alive.
         });
     }
+
+    async stopBackgroundTracking() {
+        console.log('Stopping background tracking...');
+        await backgroundTracker.stop();
+    }
+
     onStateChange(listener: (state: string) => void) {
         return this.manager.onStateChange(listener, true);
     }
@@ -166,7 +173,7 @@ class BleService {
 
             const isSystemConnected = connectedPeripherals.some(d => d.id === deviceId);
             if (isSystemConnected) {
-                console.log(`BLE System Connection Found for ${deviceId} (via connectedDevices)`);
+                // console.log(`BLE System Connection Found for ${deviceId} (via connectedDevices)`);
                 return true;
             }
         } catch (e) {
@@ -179,7 +186,7 @@ class BleService {
         if (lastSeen) {
             const timeSinceLastSeen = Date.now() - lastSeen.timestamp;
             if (timeSinceLastSeen < 15000) { // 15 seconds threshold
-                console.log(`Device ${deviceId} seen ${timeSinceLastSeen}ms ago via BLE scan. Considering connected.`);
+                // console.log(`Device ${deviceId} seen ${timeSinceLastSeen}ms ago via BLE scan. Considering connected.`);
                 return true;
             }
         }

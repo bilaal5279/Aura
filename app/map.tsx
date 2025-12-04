@@ -3,12 +3,13 @@ import React, { useMemo, useState } from 'react';
 import { Dimensions, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { COLORS, SPACING } from '../src/constants/theme';
+import { useTheme } from '../src/context/ThemeContext';
 import { database, LocationHistory } from '../src/db';
 
 const { width, height } = Dimensions.get('window');
 
 // Dark Map Style
-const MAP_STYLE = [
+const DARK_MAP_STYLE = [
     {
         "elementType": "geometry",
         "stylers": [{ "color": "#212121" }]
@@ -117,6 +118,7 @@ interface MapScreenProps {
 
 const TimeMachineMap: React.FC<MapScreenProps> = ({ history }) => {
     const [timeRange, setTimeRange] = useState<'1h' | '24h' | '7d'>('24h');
+    const { colors, isDark } = useTheme();
 
     const filteredHistory = useMemo(() => {
         const now = Date.now();
@@ -137,10 +139,10 @@ const TimeMachineMap: React.FC<MapScreenProps> = ({ history }) => {
     }, [history]);
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: colors.background }]}>
             <MapView
                 style={styles.map}
-                customMapStyle={MAP_STYLE}
+                customMapStyle={isDark ? DARK_MAP_STYLE : []}
                 provider={PROVIDER_GOOGLE}
                 initialRegion={initialRegion || {
                     latitude: 37.78825,
@@ -164,8 +166,8 @@ const TimeMachineMap: React.FC<MapScreenProps> = ({ history }) => {
 
             <View style={styles.overlay}>
                 <View style={styles.header}>
-                    <Text style={styles.title}>TIME MACHINE</Text>
-                    <Text style={styles.subtitle}>{filteredHistory.length} SIGHTINGS</Text>
+                    <Text style={[styles.title, { color: COLORS.primary, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)' }]}>TIME MACHINE</Text>
+                    <Text style={[styles.subtitle, { color: colors.textSecondary, textShadowColor: isDark ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.8)' }]}>{filteredHistory.length} SIGHTINGS</Text>
                 </View>
 
                 <View style={styles.controls}>
@@ -175,11 +177,13 @@ const TimeMachineMap: React.FC<MapScreenProps> = ({ history }) => {
                             onPress={() => setTimeRange(range)}
                             style={[
                                 styles.filterButton,
-                                timeRange === range && styles.filterButtonActive
+                                { backgroundColor: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.8)', borderColor: colors.border },
+                                timeRange === range && { backgroundColor: COLORS.primary, borderColor: COLORS.primary }
                             ]}
                         >
                             <Text style={[
                                 styles.filterText,
+                                { color: colors.textSecondary },
                                 timeRange === range && styles.filterTextActive
                             ]}>
                                 {range.toUpperCase()}
@@ -201,7 +205,6 @@ export default enhance(TimeMachineMap);
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: COLORS.background,
     },
     map: {
         width: '100%',
@@ -217,20 +220,16 @@ const styles = StyleSheet.create({
         marginBottom: SPACING.m,
     },
     title: {
-        color: COLORS.primary,
         fontSize: 24,
         fontWeight: 'bold',
         letterSpacing: 2,
-        textShadowColor: 'rgba(0,0,0,0.8)',
         textShadowRadius: 10,
     },
     subtitle: {
-        color: COLORS.textSecondary,
         fontSize: 12,
         marginTop: 4,
         letterSpacing: 1,
         fontWeight: '600',
-        textShadowColor: 'rgba(0,0,0,0.8)',
         textShadowRadius: 5,
     },
     controls: {
@@ -241,16 +240,12 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
         paddingHorizontal: 16,
         borderRadius: 20,
-        backgroundColor: 'rgba(0,0,0,0.6)',
         borderWidth: 1,
-        borderColor: COLORS.glass.border,
     },
     filterButtonActive: {
-        backgroundColor: COLORS.primary,
-        borderColor: COLORS.primary,
+        // Handled inline
     },
     filterText: {
-        color: COLORS.textSecondary,
         fontSize: 12,
         fontWeight: '600',
     },

@@ -5,26 +5,25 @@ import { Audio } from 'expo-av';
 import * as Haptics from 'expo-haptics';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Dimensions, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Dimensions, Modal, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { Easing, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
-import { COLORS, SPACING } from '../../src/constants/theme';
-import { useRadar } from '../../src/hooks/useRadar';
-
-const { width, height } = Dimensions.get('window');
-const CENTER = vec(width / 2, height / 3);
-
 import { Confetti } from '../../src/components/Confetti';
+import { PaywallModal } from '../../src/components/PaywallModal';
+import { COLORS, SPACING } from '../../src/constants/theme';
+import { DeviceSettings } from '../../src/context/RadarContext';
+import { useTheme } from '../../src/context/ThemeContext';
+import { useRadar } from '../../src/hooks/useRadar';
 import { bleService } from '../../src/services/ble/BleService';
 import { RssiSmoother } from '../../src/services/tracking/KalmanFilter';
 
-import { Modal } from 'react-native'; // Import Modal
-import { PaywallModal } from '../../src/components/PaywallModal';
-import { DeviceSettings } from '../../src/context/RadarContext';
+const { width, height } = Dimensions.get('window');
+const CENTER = vec(width / 2, height / 3);
 
 export default function DeviceDetailScreen() {
     const { id, name } = useLocalSearchParams();
     const router = useRouter();
     const { devices } = useRadar();
+    const { colors, isDark } = useTheme();
 
     // Persist last known device data to prevent UI flickering/crash
     const lastKnownDevice = useRef<any>(null);
@@ -61,7 +60,7 @@ export default function DeviceDetailScreen() {
     // Normalized 0 to 1
     const signalStrength = Math.max(0, Math.min(1, (rssi + 100) / 50));
 
-    const { trackedDevices, toggleTracking, updateDeviceSettings, distanceUnit } = useRadar();
+    const { trackedDevices, toggleTracking, updateDeviceSettings, distanceUnit, backgroundTrackingEnabled } = useRadar();
     const deviceSettings = trackedDevices.get(id as string);
     const isTracked = !!deviceSettings;
 
@@ -85,9 +84,8 @@ export default function DeviceDetailScreen() {
 
     const [soundEnabled, setSoundEnabled] = useState(false);
     const [vibrationEnabled, setVibrationEnabled] = useState(true);
-    const [backgroundTrackingEnabled, setBackgroundTrackingEnabled] = useState(false);
     const [showPaywall, setShowPaywall] = useState(false);
-    const [isPro, setIsPro] = useState(false); // Mock Pro status
+    const [isPro, setIsPro] = useState(true); // Mock Pro status
     const [sound, setSound] = useState<Audio.Sound>();
     const [showSettings, setShowSettings] = useState(false);
     const [isFound, setIsFound] = useState(false);
@@ -104,6 +102,19 @@ export default function DeviceDetailScreen() {
             setShowPaywall(true);
             return;
         }
+
+        if (!backgroundTrackingEnabled) {
+            Alert.alert(
+                'Background Tracking Disabled',
+                'You need to enable background tracking to receive notifications when the app is minimized.',
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Settings', onPress: () => router.push('/settings') }
+                ]
+            );
+            return;
+        }
+
         if (!isTracked) {
             // If not tracked, enable tracking with default + this setting
             toggleTracking(id as string, { [setting]: true });
@@ -194,19 +205,19 @@ export default function DeviceDetailScreen() {
     };
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: colors.background }]}>
             <Stack.Screen options={{ headerShown: false }} />
 
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="chevron-back" size={28} color="#FFF" />
+                <TouchableOpacity onPress={() => router.back()} style={[styles.backButton, { backgroundColor: colors.card }]}>
+                    <Ionicons name="chevron-back" size={28} color={colors.text} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle} numberOfLines={1}>
+                <Text style={[styles.headerTitle, { color: colors.text }]} numberOfLines={1}>
                     {deviceName}
                 </Text>
                 <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.settingsButton}>
-                    <Ionicons name="settings-sharp" size={24} color="#FFF" />
+                    <Ionicons name="settings-sharp" size={24} color={colors.text} />
                 </TouchableOpacity>
             </View>
 
@@ -232,7 +243,8 @@ export default function DeviceDetailScreen() {
             {/* Signal Text Below Orb */}
             <View style={styles.signalContainer}>
                 {/* Percentage Score */}
-                <Text style={styles.signalValue}>
+                {/* Use theme text color for percentage in light mode, as white might be invisible */}
+                <Text style={[styles.signalValue, { color: colors.text }]}>
                     {Math.max(0, Math.min(100, Math.round((rssi + 100) * 1.66)))}%
                 </Text>
 
@@ -241,11 +253,11 @@ export default function DeviceDetailScreen() {
                     {signalStrength > 0.9 ? "IT'S RIGHT HERE!" :
                         signalStrength > 0.7 ? "VERY CLOSE" :
                             signalStrength > 0.5 ? "GETTING WARMER" :
-                                signalStrength > 0.3 ? "COLD" : "SEARCHING..."}
+                                signalStrength > 0.3 ? "COLD" : "MOVE AROUND TO FIND SIGNAL"}
                 </Text>
 
                 {/* Visual Bar */}
-                <View style={styles.barContainer}>
+                <View style={[styles.barContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }]}>
                     <View style={[styles.barFill, {
                         width: `${Math.max(0, Math.min(100, (rssi + 100) * 1.66))}%`,
                         backgroundColor: orbColor
@@ -253,15 +265,15 @@ export default function DeviceDetailScreen() {
                 </View>
 
                 {/* Technical Detail */}
-                <Text style={styles.dbmText}>Signal Strength: {Math.round(rssi)} dBm • {distanceText}</Text>
+                <Text style={[styles.dbmText, { color: colors.textSecondary }]}>Signal Strength: {Math.round(rssi)} dBm • {distanceText}</Text>
             </View>
 
             {/* Controls */}
             <View style={styles.controlsContainer}>
-                <View style={styles.controlRow}>
+                <View style={[styles.controlRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     <View style={styles.controlText}>
-                        <Text style={styles.controlTitle}>Haptic Guidance</Text>
-                        <Text style={styles.controlSubtitle}>Vibrate faster as you get closer</Text>
+                        <Text style={[styles.controlTitle, { color: colors.text }]}>Haptic Guidance</Text>
+                        <Text style={[styles.controlSubtitle, { color: colors.textSecondary }]}>Vibrate faster as you get closer</Text>
                     </View>
                     <Switch
                         value={vibrationEnabled}
@@ -271,10 +283,10 @@ export default function DeviceDetailScreen() {
                     />
                 </View>
 
-                <View style={styles.controlRow}>
+                <View style={[styles.controlRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
                     <View style={styles.controlText}>
-                        <Text style={styles.controlTitle}>Sound Indicator</Text>
-                        <Text style={styles.controlSubtitle}>Play Geiger-counter sound on phone</Text>
+                        <Text style={[styles.controlTitle, { color: colors.text }]}>Sound Indicator</Text>
+                        <Text style={[styles.controlSubtitle, { color: colors.textSecondary }]}>Play Geiger-counter sound on phone</Text>
                     </View>
                     <Switch
                         value={soundEnabled}
@@ -287,11 +299,18 @@ export default function DeviceDetailScreen() {
 
                 {/* I Found It Button */}
                 <TouchableOpacity
-                    style={styles.foundButton}
+                    style={[
+                        styles.foundButton,
+                        {
+                            backgroundColor: isDark ? '#00FF9D' : '#00C853',
+                            shadowColor: isDark ? '#00FF9D' : '#00C853',
+                            shadowOpacity: isDark ? 0.5 : 0.3,
+                        }
+                    ]}
                     onPress={handleFound}
                 >
-                    <Ionicons name="checkmark-circle" size={24} color="#000" />
-                    <Text style={styles.foundButtonText}>I Found It!</Text>
+                    <Ionicons name="checkmark-circle" size={24} color={isDark ? '#000' : '#FFF'} />
+                    <Text style={[styles.foundButtonText, { color: isDark ? '#000' : '#FFF' }]}>I Found It!</Text>
                 </TouchableOpacity>
             </View>
 
@@ -307,18 +326,18 @@ export default function DeviceDetailScreen() {
             >
                 <View style={styles.modalOverlay}>
 
-                    <View style={styles.modalContent}>
+                    <View style={[styles.modalContent, { backgroundColor: colors.background }]}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Device Settings</Text>
+                            <Text style={[styles.modalTitle, { color: colors.text }]}>Device Settings</Text>
                             <TouchableOpacity onPress={() => setShowSettings(false)}>
-                                <Ionicons name="close" size={24} color="#FFF" />
+                                <Ionicons name="close" size={24} color={colors.text} />
                             </TouchableOpacity>
                         </View>
 
-                        <View style={styles.settingRow}>
+                        <View style={[styles.settingRow, { backgroundColor: colors.card }]}>
                             <View>
-                                <Text style={styles.settingLabel}>Notify on Lost</Text>
-                                <Text style={styles.settingDesc}>Alert when device signal is lost</Text>
+                                <Text style={[styles.settingLabel, { color: colors.text }]}>Notify on Lost</Text>
+                                <Text style={[styles.settingDesc, { color: colors.textSecondary }]}>Alert when device signal is lost</Text>
                             </View>
                             <Switch
                                 value={deviceSettings?.notifyOnLost || false}
@@ -328,7 +347,7 @@ export default function DeviceDetailScreen() {
                             />
                         </View>
 
-                        <Text style={styles.modalNote}>
+                        <Text style={[styles.modalNote, { color: colors.textSecondary }]}>
                             More settings available in the main app settings.
                         </Text>
                     </View>
@@ -338,7 +357,6 @@ export default function DeviceDetailScreen() {
             <PaywallModal
                 visible={showPaywall}
                 onClose={() => setShowPaywall(false)}
-                onPurchase={handlePurchase}
             />
         </View>
     );
@@ -347,7 +365,6 @@ export default function DeviceDetailScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#000',
     },
     header: {
         flexDirection: 'row',
@@ -360,12 +377,10 @@ const styles = StyleSheet.create({
     backButton: {
         padding: 8,
         borderRadius: 20,
-        backgroundColor: 'rgba(255,255,255,0.1)',
     },
     headerTitle: {
         fontSize: 18,
         fontWeight: '700',
-        color: '#FFF',
         maxWidth: '70%',
         letterSpacing: 1,
     },
@@ -385,7 +400,6 @@ const styles = StyleSheet.create({
     signalValue: {
         fontSize: 48, // Reduced from 64 to prevent cutoff
         fontWeight: 'bold',
-        color: '#FFF',
         textShadowColor: 'rgba(0,0,0,0.5)',
         textShadowRadius: 10,
         fontVariant: ['tabular-nums'],
@@ -403,7 +417,6 @@ const styles = StyleSheet.create({
     barContainer: {
         width: 200,
         height: 6,
-        backgroundColor: 'rgba(255,255,255,0.1)',
         borderRadius: 3,
         overflow: 'hidden',
         marginBottom: 8,
@@ -414,7 +427,6 @@ const styles = StyleSheet.create({
     },
     dbmText: {
         fontSize: 12,
-        color: '#666',
         fontFamily: 'monospace',
     },
     controlsContainer: {
@@ -428,11 +440,9 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        backgroundColor: 'rgba(255,255,255,0.05)',
         padding: SPACING.m,
         borderRadius: 16,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.1)',
     },
     controlText: {
         flex: 1,
@@ -440,12 +450,10 @@ const styles = StyleSheet.create({
     controlTitle: {
         fontSize: 16,
         fontWeight: '600',
-        color: '#FFF',
         marginBottom: 4,
     },
     controlSubtitle: {
         fontSize: 12,
-        color: '#888',
     },
     settingsButton: {
         padding: 8,
@@ -456,7 +464,6 @@ const styles = StyleSheet.create({
         justifyContent: 'flex-end',
     },
     modalContent: {
-        backgroundColor: '#1A1A1A',
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
         padding: SPACING.l,
@@ -471,26 +478,22 @@ const styles = StyleSheet.create({
     modalTitle: {
         fontSize: 20,
         fontWeight: 'bold',
-        color: '#FFF',
     },
     settingRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: SPACING.l,
-        backgroundColor: 'rgba(255,255,255,0.05)',
         padding: SPACING.m,
         borderRadius: 12,
     },
     settingLabel: {
         fontSize: 16,
         fontWeight: '600',
-        color: '#FFF',
         marginBottom: 4,
     },
     settingDesc: {
         fontSize: 12,
-        color: '#888',
     },
     historyButton: {
         flexDirection: 'row',
@@ -523,7 +526,6 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
     },
     modalNote: {
-        color: COLORS.textSecondary,
         fontSize: 12,
         textAlign: 'center',
         marginTop: SPACING.l,
@@ -532,19 +534,15 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#00FF9D', // Neon Green
         padding: SPACING.l,
         borderRadius: 16,
         gap: 8,
         marginTop: SPACING.m,
-        shadowColor: '#00FF9D',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.5,
-        shadowRadius: 20,
+        shadowOffset: { width: 0, height: 4 },
+        shadowRadius: 10,
         elevation: 5,
     },
     foundButtonText: {
-        color: '#000',
         fontSize: 18,
         fontWeight: 'bold',
         textTransform: 'uppercase',

@@ -4,9 +4,11 @@ import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { GlassCard } from '../src/components/GlassCard';
 import { COLORS, SPACING } from '../src/constants/theme';
+import { useTheme } from '../src/context/ThemeContext';
 
 export default function FAQScreen() {
     const router = useRouter();
+    const { colors, isDark } = useTheme();
 
     const faqs = [
         {
@@ -15,11 +17,11 @@ export default function FAQScreen() {
         },
         {
             question: "Why can't I see my device?",
-            answer: "Aura uses Bluetooth Low Energy (BLE) to detect devices. If your device is a classic Bluetooth device (like some older headphones) or is currently connected to another phone, it might not be advertising its presence. Ensure your device is powered on and not in 'sleep' mode."
+            answer: "Device Finder uses Bluetooth Low Energy (BLE) to detect devices. If your device is a classic Bluetooth device (like some older headphones) or is currently connected to another phone, it might not be advertising its presence. Ensure your device is powered on and not in 'sleep' mode."
         },
         {
             question: "What is Background Tracking?",
-            answer: "Background Tracking allows Aura to monitor your devices even when the app is closed. If you leave a tracked device behind, Aura will send you a notification. This is a Pro feature."
+            answer: "Background Tracking allows Device Finder to monitor your devices even when the app is closed. If you leave a tracked device behind, Device Finder will send you a notification. This is a Pro feature."
         },
         {
             question: "Why does the signal fluctuate?",
@@ -28,14 +30,14 @@ export default function FAQScreen() {
     ];
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: colors.background }]}>
             <Stack.Screen options={{ headerShown: false }} />
 
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <Ionicons name="chevron-back" size={28} color="#FFF" />
+                <TouchableOpacity onPress={() => router.back()} style={[styles.backButton, { backgroundColor: colors.card }]}>
+                    <Ionicons name="chevron-back" size={28} color={colors.text} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>FAQ</Text>
+                <Text style={[styles.headerTitle, { color: colors.text }]}>FAQ</Text>
                 <View style={{ width: 28 }} />
             </View>
 
@@ -43,8 +45,8 @@ export default function FAQScreen() {
                 {faqs.map((faq, index) => (
                     <GlassCard key={index} width={350} intensity={20} style={styles.card}>
                         <View style={styles.cardContent}>
-                            <Text style={styles.question}>{faq.question}</Text>
-                            <Text style={styles.answer}>{faq.answer}</Text>
+                            <Text style={[styles.question, { color: isDark ? COLORS.primary : '#00C853' }]}>{faq.question}</Text>
+                            <Text style={[styles.answer, { color: colors.text }]}>{faq.answer}</Text>
                         </View>
                     </GlassCard>
                 ))}
@@ -57,7 +59,6 @@ export default function FAQScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: COLORS.background,
     },
     header: {
         flexDirection: 'row',
@@ -71,12 +72,10 @@ const styles = StyleSheet.create({
     backButton: {
         padding: 8,
         borderRadius: 20,
-        backgroundColor: 'rgba(255,255,255,0.1)',
     },
     headerTitle: {
         fontSize: 20,
         fontWeight: '700',
-        color: '#FFF',
         letterSpacing: 1,
     },
     content: {
@@ -94,12 +93,10 @@ const styles = StyleSheet.create({
     question: {
         fontSize: 18,
         fontWeight: 'bold',
-        color: COLORS.primary,
         marginBottom: SPACING.s,
     },
     answer: {
         fontSize: 14,
-        color: COLORS.text,
         lineHeight: 22,
     },
 });

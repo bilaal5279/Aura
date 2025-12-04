@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Blur, Canvas, Circle, RadialGradient, vec } from '@shopify/react-native-skia';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, SectionList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { GlassCard } from '../src/components/GlassCard';
+import { NotifyFoundModal } from '../src/components/NotifyFoundModal';
 import { PaywallModal } from '../src/components/PaywallModal';
 import { ScanningAnimation } from '../src/components/ScanningAnimation';
 import { COLORS, SPACING } from '../src/constants/theme';
+import { useTheme } from '../src/context/ThemeContext';
 import { ScannedDevice, useRadar } from '../src/hooks/useRadar';
 import { bleService } from '../src/services/ble/BleService';
 
@@ -22,9 +24,8 @@ const calculateDistance = (rssi: number | null) => {
     return Math.pow(10, exponent);
 };
 
-import { NotifyFoundModal } from '../src/components/NotifyFoundModal';
-
 const DeviceItem = ({ item, isPro, onPress }: { item: ScannedDevice, isPro: boolean, onPress: () => void }) => {
+    const { colors, isDark } = useTheme();
     // Simple icon logic
     let icon = 'bluetooth';
     const name = (item.device.name || '').toLowerCase();
@@ -50,27 +51,27 @@ const DeviceItem = ({ item, isPro, onPress }: { item: ScannedDevice, isPro: bool
             <View style={styles.itemContainer}>
                 <GlassCard width={350} height={90} intensity={15} style={[styles.itemCard, isLost && { opacity: 0.6 }]}>
                     <View style={styles.itemContent}>
-                        <View style={[styles.iconContainer, isLost && { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
-                            <Ionicons name={icon as any} size={24} color={isLost ? COLORS.textSecondary : COLORS.text} />
+                        <View style={[styles.iconContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }]}>
+                            <Ionicons name={icon as any} size={24} color={isLost ? colors.textSecondary : colors.text} />
                         </View>
                         <View style={styles.textContainer}>
-                            <Text style={[styles.deviceName, { color: isLost ? COLORS.textSecondary : '#FFFFFF' }]} numberOfLines={1}>
+                            <Text style={[styles.deviceName, { color: isLost ? colors.textSecondary : colors.text }]} numberOfLines={1}>
                                 {item.device.name || item.device.localName || item.customName || 'Unknown Device'}
                             </Text>
-                            <Text style={[styles.deviceId, { color: '#AAAAAA' }]}>{item.device.id}</Text>
+                            <Text style={[styles.deviceId, { color: colors.textSecondary }]}>{item.device.id}</Text>
                             <View style={styles.statusRow}>
-                                <Text style={[styles.distanceText, isLost && { color: '#FF3B30' }]}>
+                                <Text style={[styles.distanceText, { color: isLost ? COLORS.danger : colors.textSecondary }]}>
                                     {isLost ? 'Signal Lost' : getDistanceText(distance)}
                                 </Text>
                             </View>
                             {!isLost && distance && (
-                                <View style={styles.distanceBarContainer}>
+                                <View style={[styles.distanceBarContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }]}>
                                     <View
                                         style={[
                                             styles.distanceBarFill,
                                             {
                                                 width: `${Math.min(100, Math.max(0, (1 - distance / 10) * 100))}%`,
-                                                backgroundColor: distance < 2 ? '#4CAF50' : distance < 5 ? '#FFC107' : '#2196F3'
+                                                backgroundColor: distance < 2 ? COLORS.success : distance < 5 ? '#FFC107' : '#2196F3'
                                             }
                                         ]}
                                     />
@@ -86,9 +87,10 @@ const DeviceItem = ({ item, isPro, onPress }: { item: ScannedDevice, isPro: bool
 
 export default function Dashboard() {
     const router = useRouter();
-    const { isScanning, devices, bluetoothState, connectedIds, trackedDevices, toggleTracking } = useRadar();
+    const { colors, isDark } = useTheme();
+    const { isScanning, devices, bluetoothState, connectedIds, trackedDevices, toggleTracking, updateDeviceSettings, backgroundTrackingEnabled } = useRadar();
     const [showPaywall, setShowPaywall] = useState(false);
-    const [isPro, setIsPro] = useState(false);
+    const [isPro, setIsPro] = useState(true);
     const [selectedDevice, setSelectedDevice] = useState<ScannedDevice | null>(null);
     const [showNotifyModal, setShowNotifyModal] = useState(false);
 
@@ -116,8 +118,27 @@ export default function Dashboard() {
             setShowNotifyModal(false);
             setTimeout(() => setShowPaywall(true), 300); // Small delay for smooth transition
         } else {
+            if (!backgroundTrackingEnabled) {
+                Alert.alert(
+                    'Background Tracking Disabled',
+                    'You need to enable background tracking to receive notifications when the app is minimized.',
+                    [
+                        { text: 'Cancel', style: 'cancel' },
+                        { text: 'Settings', onPress: () => router.push('/settings') }
+                    ]
+                );
+                setShowNotifyModal(false);
+                return;
+            }
+
             if (selectedDevice) {
-                toggleTracking(selectedDevice.device.id, { notifyOnFound: true });
+                const id = selectedDevice.device.id;
+                if (trackedDevices.has(id)) {
+                    updateDeviceSettings(id, { notifyOnFound: true });
+                } else {
+                    toggleTracking(id, { notifyOnFound: true });
+                }
+                Alert.alert('Notification Set', `We'll let you know when ${selectedDevice.device.name || 'this device'} is found.`);
             }
             setShowNotifyModal(false);
         }
@@ -138,24 +159,25 @@ export default function Dashboard() {
     const sections = [
         {
             title: 'My Devices',
-            data: devices.filter(d => d.isBonded)
+            data: devices.filter((d: ScannedDevice) => d.isBonded)
         },
         {
             title: 'Found Devices',
-            data: devices.filter(d => !d.isBonded && (d.device.name || d.device.localName))
+            data: devices.filter((d: ScannedDevice) => !d.isBonded && (d.device.name || d.device.localName))
         },
         {
             title: 'Unknown Signals',
-            data: devices.filter(d => !d.isBonded && !d.device.name && !d.device.localName)
+            data: devices.filter((d: ScannedDevice) => !d.isBonded && !d.device.name && !d.device.localName)
         }
     ].filter(section => section.data.length > 0);
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: colors.background }]}>
+            <Stack.Screen options={{ headerShown: false }} />
             {/* Ambient Background Pulse */}
             <View style={StyleSheet.absoluteFill}>
                 <Canvas style={{ flex: 1 }}>
-                    <Circle cx={200} cy={200} r={150} opacity={0.1}>
+                    <Circle cx={200} cy={200} r={150} opacity={isDark ? 0.1 : 0.05}>
                         <RadialGradient
                             c={vec(200, 200)}
                             r={150}
@@ -168,15 +190,39 @@ export default function Dashboard() {
 
             <View style={styles.header}>
                 <View>
-                    <Text style={styles.title}>Aura</Text>
-                    <Text style={styles.subtitle}>
+                    <Text style={[
+                        styles.title,
+                        {
+                            color: isDark ? COLORS.primary : '#000',
+                            textShadowColor: isDark ? COLORS.primary : 'transparent',
+                            textShadowRadius: isDark ? 15 : 0
+                        }
+                    ]}>Device Finder</Text>
+                    <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
                         {bluetoothState === 'PoweredOn'
                             ? (isScanning ? 'Scanning Environment...' : 'Ready to Scan')
                             : (bluetoothState === 'Unknown' ? 'Initializing...' : 'Bluetooth Off / Offline')}
                     </Text>
                 </View>
-                <TouchableOpacity onPress={() => setShowPaywall(true)} style={styles.upgradeButton}>
-                    <Ionicons name="diamond-outline" size={24} color={COLORS.primary} />
+                <TouchableOpacity
+                    onPress={() => setShowPaywall(true)}
+                    style={[
+                        styles.upgradeButton,
+                        {
+                            borderColor: isDark ? COLORS.primary : '#E0E0E0',
+                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#FFF',
+                            shadowColor: "#000",
+                            shadowOffset: {
+                                width: 0,
+                                height: 2,
+                            },
+                            shadowOpacity: isDark ? 0 : 0.1,
+                            shadowRadius: 3.84,
+                            elevation: isDark ? 0 : 5,
+                        }
+                    ]}
+                >
+                    <Ionicons name="diamond-outline" size={24} color={isDark ? COLORS.primary : '#000'} />
                 </TouchableOpacity>
             </View>
 
@@ -201,7 +247,7 @@ export default function Dashboard() {
                 )}
                 renderSectionHeader={({ section: { title } }) => (
                     <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionHeaderText}>{title}</Text>
+                        <Text style={[styles.sectionHeaderText, { color: colors.textSecondary }]}>{title}</Text>
                     </View>
                 )}
                 contentContainerStyle={styles.listContent}
@@ -209,7 +255,7 @@ export default function Dashboard() {
                     bluetoothState === 'PoweredOn' ? (
                         <View style={styles.emptyContainer}>
                             <ScanningAnimation />
-                            <Text style={styles.emptyText}>Searching for signals...</Text>
+                            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Searching for signals...</Text>
                         </View>
                     ) : null
                 }
@@ -217,18 +263,17 @@ export default function Dashboard() {
             />
 
             <View style={styles.navContainer}>
-                <TouchableOpacity onPress={() => router.push('/faq' as any)} style={styles.button}>
-                    <Text style={styles.buttonText}>FAQ</Text>
+                <TouchableOpacity onPress={() => router.push('/faq' as any)} style={[styles.button, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255,255,255,0.9)', borderColor: colors.border }]}>
+                    <Text style={[styles.buttonText, { color: colors.text }]}>FAQ</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => router.push('/settings')} style={styles.button}>
-                    <Text style={styles.buttonText}>Settings</Text>
+                <TouchableOpacity onPress={() => router.push('/settings')} style={[styles.button, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255,255,255,0.9)', borderColor: colors.border }]}>
+                    <Text style={[styles.buttonText, { color: colors.text }]}>Settings</Text>
                 </TouchableOpacity>
             </View>
 
             <PaywallModal
                 visible={showPaywall}
                 onClose={() => setShowPaywall(false)}
-                onPurchase={handlePurchase}
             />
 
             <NotifyFoundModal
@@ -244,7 +289,6 @@ export default function Dashboard() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: COLORS.background,
     },
     header: {
         paddingTop: 60,
@@ -256,16 +300,17 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 42,
-        color: COLORS.primary,
         fontWeight: 'bold',
         letterSpacing: 1,
+        // Removed fixed textShadowColor to allow dynamic styling if needed, 
+        // or we can keep it if it looks good. 
+        // For now, let's keep the shadow but maybe adjust it for light mode if needed.
         textShadowColor: COLORS.primary,
         textShadowOffset: { width: 0, height: 0 },
         textShadowRadius: 15,
     },
     subtitle: {
         fontSize: 14,
-        color: COLORS.textSecondary,
         marginTop: SPACING.xs,
         textTransform: 'uppercase',
         letterSpacing: 2,
@@ -274,15 +319,13 @@ const styles = StyleSheet.create({
         width: 44,
         height: 44,
         borderRadius: 22,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
         justifyContent: 'center',
         alignItems: 'center',
         borderWidth: 1,
-        borderColor: COLORS.primary,
     },
     listContent: {
         paddingHorizontal: SPACING.m,
-        paddingBottom: 100,
+        paddingBottom: 120, // Increased padding to avoid overlap with nav buttons
     },
     sectionHeader: {
         paddingVertical: SPACING.s,
@@ -291,7 +334,6 @@ const styles = StyleSheet.create({
         marginTop: SPACING.m,
     },
     sectionHeaderText: {
-        color: COLORS.textSecondary,
         fontSize: 12,
         textTransform: 'uppercase',
         letterSpacing: 1,
@@ -314,7 +356,6 @@ const styles = StyleSheet.create({
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: 'rgba(255,255,255,0.1)',
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: SPACING.m,
@@ -325,13 +366,11 @@ const styles = StyleSheet.create({
     },
     deviceName: {
         fontSize: 16,
-        color: COLORS.text,
         fontWeight: '600',
         marginBottom: 2,
     },
     deviceId: {
         fontSize: 10,
-        color: COLORS.textSecondary,
         fontFamily: 'monospace',
         marginBottom: 4,
     },
@@ -339,20 +378,8 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
     },
-    statusDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        marginRight: 6,
-    },
-    statusText: {
-        fontSize: 12,
-        color: COLORS.textSecondary,
-        marginRight: 8,
-    },
     distanceText: {
         fontSize: 12,
-        color: COLORS.textSecondary,
         fontWeight: '600',
     },
     emptyContainer: {
@@ -360,7 +387,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     emptyText: {
-        color: COLORS.textSecondary,
         fontSize: 16,
     },
     navContainer: {
@@ -373,15 +399,12 @@ const styles = StyleSheet.create({
         gap: SPACING.m,
     },
     button: {
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
         paddingVertical: SPACING.m,
         paddingHorizontal: SPACING.l,
         borderRadius: 25,
         borderWidth: 1,
-        borderColor: COLORS.glass.border,
     },
     buttonText: {
-        color: COLORS.text,
         fontSize: 14,
         fontWeight: '600',
         textTransform: 'uppercase',
@@ -413,7 +436,6 @@ const styles = StyleSheet.create({
     },
     distanceBarContainer: {
         height: 4,
-        backgroundColor: 'rgba(255,255,255,0.1)',
         borderRadius: 2,
         marginTop: 6,
         width: '100%',

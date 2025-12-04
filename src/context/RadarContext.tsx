@@ -1,9 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import { Device } from 'react-native-ble-plx';
+import Purchases, { CustomerInfo, PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import { bleService } from '../services/ble/BleService';
 import { notificationService } from '../services/notifications/NotificationService';
 import { RssiSmoother } from '../services/tracking/KalmanFilter';
+import { getManufacturerFromMac } from '../utils/ouiLookup';
 
 export interface ScannedDevice {
     device: Device;
@@ -30,6 +33,13 @@ interface RadarContextType {
     updateDeviceSettings: (deviceId: string, settings: Partial<DeviceSettings>) => void;
     distanceUnit: 'meters' | 'feet' | 'auto';
     updateDistanceUnit: (unit: 'meters' | 'feet' | 'auto') => void;
+    backgroundTrackingEnabled: boolean;
+    toggleBackgroundTracking: (enabled: boolean) => void;
+    // RevenueCat
+    isPro: boolean;
+    currentOffering: PurchasesOffering | null;
+    purchasePackage: (pack: PurchasesPackage) => Promise<void>;
+    restorePro: () => Promise<void>;
 }
 
 const RadarContext = createContext<RadarContextType>({
@@ -44,23 +54,111 @@ const RadarContext = createContext<RadarContextType>({
     updateDeviceSettings: () => { },
     distanceUnit: 'auto',
     updateDistanceUnit: () => { },
+    backgroundTrackingEnabled: true,
+    toggleBackgroundTracking: () => { },
+    // RevenueCat
+    isPro: false,
+    currentOffering: null,
+    purchasePackage: async () => { },
+    restorePro: async () => { },
 });
 
 export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [isScanning, setIsScanning] = useState(false);
     const [devicesMap, setDevicesMap] = useState<Map<string, ScannedDevice>>(new Map());
-    const devicesMapRef = useRef(devicesMap); // Ref to access latest devices in interval
 
-    // Keep ref in sync
-    useEffect(() => {
-        devicesMapRef.current = devicesMap;
-    }, [devicesMap]);
+    // Use a mutable Map ref as the source of truth to ensure background updates work
+    // even if React state updates are batched or delayed.
+    const devicesRef = useRef<Map<string, ScannedDevice>>(new Map());
+
+    // Sync state for UI
+    const syncState = () => {
+        setDevicesMap(new Map(devicesRef.current));
+    };
 
     const smoothers = useRef<Map<string, RssiSmoother>>(new Map()).current;
 
     const [bluetoothState, setBluetoothState] = useState('Unknown');
     const [connectedIds, setConnectedIds] = useState<Set<string>>(new Set());
     const [trackedDevices, setTrackedDevices] = useState<Map<string, DeviceSettings>>(new Map());
+    const trackedDevicesRef = useRef(trackedDevices);
+
+    // RevenueCat State
+    const [isPro, setIsPro] = useState(false);
+    const [currentOffering, setCurrentOffering] = useState<PurchasesOffering | null>(null);
+
+    // Initialize RevenueCat
+    useEffect(() => {
+        const initRevenueCat = async () => {
+            if (Platform.OS === 'android') {
+                Purchases.configure({ apiKey: 'test_ARCJxvSrEaJThOsDVOnaBWAuWmp' });
+            } else {
+                Purchases.configure({ apiKey: 'test_ARCJxvSrEaJThOsDVOnaBWAuWmp' });
+            }
+
+            // Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
+
+            try {
+                const customerInfo = await Purchases.getCustomerInfo();
+                updateProStatus(customerInfo);
+
+                const offerings = await Purchases.getOfferings();
+                if (offerings.current !== null) {
+                    setCurrentOffering(offerings.current);
+                }
+            } catch (e) {
+                console.warn('RevenueCat Init Error:', e);
+            }
+        };
+
+        initRevenueCat();
+
+        const listener = (info: CustomerInfo) => {
+            updateProStatus(info);
+        };
+
+        Purchases.addCustomerInfoUpdateListener(listener);
+
+        return () => {
+            Purchases.removeCustomerInfoUpdateListener(listener);
+        };
+    }, []);
+
+    const updateProStatus = (info: CustomerInfo) => {
+        const isProActive = typeof info.entitlements.active['Device Finder Pro'] !== 'undefined';
+        setIsPro(isProActive);
+        // If they lose Pro, ensure background tracking is disabled if it was enabled
+        if (!isProActive && backgroundTrackingEnabled) {
+            // We might want to disable it, but for now let's just update the state
+            // toggleBackgroundTracking(false); // Optional: force disable
+        }
+    };
+
+    const purchasePackage = async (pack: PurchasesPackage) => {
+        try {
+            const { customerInfo } = await Purchases.purchasePackage(pack);
+            updateProStatus(customerInfo);
+        } catch (e: any) {
+            if (!e.userCancelled) {
+                console.warn('Purchase Error:', e);
+                throw e;
+            }
+        }
+    };
+
+    const restorePro = async () => {
+        try {
+            const customerInfo = await Purchases.restorePurchases();
+            updateProStatus(customerInfo);
+        } catch (e) {
+            console.warn('Restore Error:', e);
+            throw e;
+        }
+    };
+
+    useEffect(() => {
+        trackedDevicesRef.current = trackedDevices;
+    }, [trackedDevices]);
 
     // Load tracked devices
     useEffect(() => {
@@ -100,6 +198,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     const toggleTracking = async (deviceId: string, settings: Partial<DeviceSettings> = { notifyOnLost: true, notifyOnFound: false }) => {
+        console.log(`[Radar] Toggling tracking for ${deviceId}`, settings);
         setTrackedDevices(prev => {
             const next = new Map(prev);
             if (next.has(deviceId)) {
@@ -113,6 +212,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     const updateDeviceSettings = async (deviceId: string, settings: Partial<DeviceSettings>) => {
+        console.log(`[Radar] Updating settings for ${deviceId}`, settings);
         setTrackedDevices(prev => {
             const next = new Map(prev);
             const current = next.get(deviceId);
@@ -137,68 +237,88 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         const hasPerms = await bleService.requestPermissions();
-        console.log('Permissions granted:', hasPerms);
+        // console.log('Permissions granted:', hasPerms);
         if (!hasPerms) {
             console.warn('Permissions denied');
             return;
         }
 
+        // Start background service to keep app alive
+        try {
+            if (backgroundTrackingEnabled) {
+                await bleService.startBackgroundTracking();
+            }
+        } catch (e) {
+            console.warn('Failed to start background tracking', e);
+        }
+
         setIsScanning(true);
-        console.log('Starting scan...');
+        // console.log('Starting scan...');
         bleService.startScan((device) => {
             // console.log('Device found:', device.id, device.name, device.rssi); // Uncomment for verbose logging
             if (device.rssi) {
                 const now = Date.now();
-                setDevicesMap((prev) => {
-                    const newMap = new Map(prev);
+                const currentMap = devicesRef.current;
 
-                    let smoother = smoothers.get(device.id);
-                    if (!smoother) {
-                        smoother = new RssiSmoother();
-                        smoothers.set(device.id, smoother);
+                let smoother = smoothers.get(device.id);
+                if (!smoother) {
+                    smoother = new RssiSmoother();
+                    smoothers.set(device.id, smoother);
+                }
+
+                const smoothedRssi = smoother.filter(device.rssi!);
+
+                // Check if we already know this device is bonded
+                const existing = currentMap.get(device.id);
+                const isBonded = existing?.isBonded || false;
+                let customName = existing?.customName;
+
+                // Apple Device Identification
+                if (!device.name && !device.localName && device.manufacturerData) {
+                    try {
+                        if (device.manufacturerData.startsWith('TA')) {
+                            customName = 'Apple Device';
+                        }
+                    } catch (e) {
+                        // Ignore decode errors
                     }
+                }
 
-                    const smoothedRssi = smoother.filter(device.rssi!);
-
-                    // Check if we already know this device is bonded
-                    const existing = newMap.get(device.id);
-                    const isBonded = existing?.isBonded || false;
-                    let customName = existing?.customName;
-
-                    // Apple Device Identification
-                    // Apple Company ID is 0x004C. In Little Endian (BLE standard), it's 4C 00.
-                    // Manufacturer Data is Base64 encoded.
-                    if (!device.name && !device.localName && device.manufacturerData) {
-                        try {
-                            // Simple Base64 decode to check first few bytes
-                            // We don't need a full library, just need to check the header.
-                            // 0x4C = 'T', 0x00 = 0.
-                            // Base64 for 4C 00 is "TA==" or similar depending on following bytes.
-                            // Better to use a buffer approach if possible, but for now we can try to match the raw string
-                            // or use a lightweight decode.
-                            // Actually, let's use the Buffer polyfill if available, or just check the raw base64 if it's consistent.
-                            // "TAA" is 4C 00 00. "TAB" is 4C 00 01.
-                            // The most robust way without Buffer is to just check if it looks like Apple data.
-                            // But let's try to be cleaner.
-                            // Since we can't easily import Buffer in Expo Go without setup, let's use a simple check.
-                            // Apple data usually starts with "TA" (which decodes to 4C...)
-                            if (device.manufacturerData.startsWith('TA')) {
-                                customName = 'Apple Device';
-                            }
-                        } catch (e) {
-                            // Ignore decode errors
+                // OUI Lookup (Android only usually)
+                if (!customName && device.id.includes(':')) {
+                    const manufacturer = getManufacturerFromMac(device.id);
+                    if (manufacturer) {
+                        if (manufacturer === 'Apple') {
+                            customName = 'iPhone / iPad';
+                        } else {
+                            customName = `${manufacturer} Device`;
                         }
                     }
+                }
 
-                    newMap.set(device.id, {
-                        device,
-                        rssi: smoothedRssi,
-                        lastSeen: now,
-                        isBonded,
-                        customName,
-                    });
-                    return newMap;
+                // Check Notify on Found (if it was previously lost/null)
+                if (existing && existing.rssi === null) {
+                    const settings = trackedDevicesRef.current.get(device.id);
+                    if (settings?.notifyOnFound) {
+                        console.log(`[Radar] Triggering Found Notification for ${device.id}`);
+                        notificationService.sendNotification(
+                            'Device Found!',
+                            `${existing.device.name || existing.customName || 'Device'} is back in range.`
+                        );
+                    }
+                }
+
+                // Update the Ref directly
+                currentMap.set(device.id, {
+                    device,
+                    rssi: smoothedRssi,
+                    lastSeen: now,
+                    isBonded,
+                    customName,
                 });
+
+                // Sync to State for UI
+                syncState();
             }
         });
     };
@@ -236,7 +356,8 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const newConnectedIds = new Set<string>();
 
             // Check connection status for all currently tracked devices
-            const currentDevices = Array.from(devicesMapRef.current.values());
+            // READ FROM REF
+            const currentDevices = Array.from(devicesRef.current.values());
 
             for (const d of currentDevices) {
                 const isConnected = await bleService.isDeviceConnected(d.device.id);
@@ -256,64 +377,69 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             setConnectedIds(newConnectedIds);
 
-            // 3. Update Devices Map
-            setDevicesMap((prev) => {
-                const newMap = new Map(prev);
-                let changed = false;
+            // 3. Update Devices Map (REF)
+            const currentMap = devicesRef.current;
+            let changed = false;
 
-                // Update RSSI for connected devices if we have it
-                for (const [id, rssi] of connectedRssiMap.entries()) {
-                    const existing = newMap.get(id);
-                    if (existing && existing.rssi !== rssi) {
-                        newMap.set(id, { ...existing, rssi, lastSeen: now });
-                        changed = true;
+            // Update RSSI for connected devices if we have it
+            for (const [id, rssi] of connectedRssiMap.entries()) {
+                const existing = currentMap.get(id);
+                if (existing && existing.rssi !== rssi) {
+                    // Update Ref
+                    currentMap.set(id, { ...existing, rssi, lastSeen: now });
+                    changed = true;
 
-                        // Check Notify on Found (if it was previously lost/null)
-                        if (existing.rssi === null && rssi !== null) {
-                            const settings = trackedDevices.get(id);
-                            if (settings?.notifyOnFound) {
+                    // Check Notify on Found (if it was previously lost/null)
+                    if (existing.rssi === null && rssi !== null) {
+                        const settings = trackedDevicesRef.current.get(id);
+                        if (settings?.notifyOnFound) {
+                            console.log(`[Radar] Triggering Found Notification for ${id}`);
+                            notificationService.sendNotification(
+                                'Device Found!',
+                                `${existing.device.name || existing.customName || 'Device'} is back in range.`
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Cleanup old devices
+            for (const [id, data] of currentMap.entries()) {
+                // If connected, keep it alive
+                if (newConnectedIds.has(id)) {
+                    continue;
+                }
+
+                if (now - data.lastSeen > 15000) {
+                    // If it has a name or is Apple, keep it but mark as lost (rssi = null)
+                    const hasName = data.device.name || data.device.localName || data.customName;
+                    if (hasName) {
+                        if (data.rssi !== null) {
+                            // Update Ref
+                            currentMap.set(id, { ...data, rssi: null });
+                            changed = true;
+
+                            // Check Notify on Lost
+                            const settings = trackedDevicesRef.current.get(id);
+                            if (settings?.notifyOnLost) {
+                                console.log(`[Radar] Triggering Lost Notification for ${id}`);
                                 notificationService.sendNotification(
-                                    'Device Found!',
-                                    `${existing.device.name || existing.customName || 'Device'} is back in range.`
+                                    'Device Lost!',
+                                    `${data.device.name || data.customName || 'Device'} has gone out of range.`
                                 );
                             }
                         }
+                    } else {
+                        // Unknown devices still get deleted
+                        currentMap.delete(id);
+                        changed = true;
                     }
                 }
+            }
 
-                // Cleanup old devices
-                for (const [id, data] of newMap.entries()) {
-                    // If connected, keep it alive
-                    if (newConnectedIds.has(id)) {
-                        continue;
-                    }
-
-                    if (now - data.lastSeen > 15000) {
-                        // If it has a name or is Apple, keep it but mark as lost (rssi = null)
-                        const hasName = data.device.name || data.device.localName || data.customName;
-                        if (hasName) {
-                            if (data.rssi !== null) {
-                                newMap.set(id, { ...data, rssi: null });
-                                changed = true;
-
-                                // Check Notify on Lost
-                                const settings = trackedDevices.get(id);
-                                if (settings?.notifyOnLost) {
-                                    notificationService.sendNotification(
-                                        'Device Lost!',
-                                        `${data.device.name || data.customName || 'Device'} has gone out of range.`
-                                    );
-                                }
-                            }
-                        } else {
-                            // Unknown devices still get deleted
-                            newMap.delete(id);
-                            changed = true;
-                        }
-                    }
-                }
-                return changed ? newMap : prev;
-            });
+            if (changed) {
+                syncState();
+            }
         }, 2000); // Check every 2 seconds
 
         return () => {
@@ -360,11 +486,83 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         await AsyncStorage.setItem('distanceUnit', unit);
     };
 
+    const [backgroundTrackingEnabled, setBackgroundTrackingEnabled] = useState(true);
+
+    useEffect(() => {
+        const loadBgSettings = async () => {
+            try {
+                const bg = await AsyncStorage.getItem('backgroundTrackingEnabled');
+                if (bg !== null) {
+                    setBackgroundTrackingEnabled(JSON.parse(bg));
+                }
+            } catch (e) {
+                console.warn('Failed to load bg settings', e);
+            }
+        };
+        loadBgSettings();
+    }, []);
+
+    const toggleBackgroundTracking = async (enabled: boolean) => {
+        setBackgroundTrackingEnabled(enabled);
+        await AsyncStorage.setItem('backgroundTrackingEnabled', JSON.stringify(enabled));
+        if (enabled) {
+            if (isScanning) {
+                try {
+                    await bleService.startBackgroundTracking();
+                } catch (e) {
+                    console.warn('Failed to start background tracking', e);
+                }
+            }
+        } else {
+            try {
+                await bleService.stopBackgroundTracking();
+            } catch (e) {
+                console.warn('Failed to stop background tracking', e);
+            }
+
+            // Disable notifications for all tracked devices
+            setTrackedDevices(prev => {
+                const next = new Map(prev);
+                let changed = false;
+                for (const [id, settings] of next.entries()) {
+                    if (settings.notifyOnLost || settings.notifyOnFound) {
+                        next.set(id, { ...settings, notifyOnLost: false, notifyOnFound: false });
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    saveTrackedDevices(next);
+                }
+                return next;
+            });
+        }
+    };
+
     return (
-        <RadarContext.Provider value={{ isScanning, devices, startScan, stopScan, bluetoothState, connectedIds, trackedDevices, toggleTracking, updateDeviceSettings, distanceUnit, updateDistanceUnit }}>
+        <RadarContext.Provider value={{
+            isScanning,
+            devices,
+            startScan,
+            stopScan,
+            bluetoothState,
+            connectedIds,
+            trackedDevices,
+            toggleTracking,
+            updateDeviceSettings,
+            distanceUnit,
+            updateDistanceUnit,
+            backgroundTrackingEnabled,
+            toggleBackgroundTracking,
+            // RevenueCat
+            isPro,
+            currentOffering,
+            purchasePackage,
+            restorePro
+        }}>
             {children}
         </RadarContext.Provider>
     );
 };
 
 
+export const useRadar = () => React.useContext(RadarContext);

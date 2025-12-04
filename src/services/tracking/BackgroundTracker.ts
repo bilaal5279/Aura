@@ -10,9 +10,9 @@ class BackgroundTracker {
         if (this.isRunning) return;
 
         const options = {
-            taskName: 'AuraTracker',
-            taskTitle: 'Aura is protecting your devices',
-            taskDesc: 'Scanning for separation alerts...',
+            taskName: 'DeviceFinderTracker',
+            taskTitle: 'Device Finder',
+            taskDesc: 'Background scanning active',
             taskIcon: {
                 name: 'ic_launcher',
                 type: 'mipmap',
