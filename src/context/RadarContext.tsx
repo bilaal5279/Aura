@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useEffect, useRef, useState } from 'react';
 import { Device } from 'react-native-ble-plx';
 import { bleService } from '../services/ble/BleService';
+import { notificationService } from '../services/notifications/NotificationService';
 import { RssiSmoother } from '../services/tracking/KalmanFilter';
 
 export interface ScannedDevice {
@@ -12,6 +13,11 @@ export interface ScannedDevice {
     customName?: string; // Added for identified devices (e.g. Apple)
 }
 
+export interface DeviceSettings {
+    notifyOnLost: boolean;
+    notifyOnFound: boolean;
+}
+
 interface RadarContextType {
     isScanning: boolean;
     devices: ScannedDevice[];
@@ -19,8 +25,11 @@ interface RadarContextType {
     stopScan: () => void;
     bluetoothState: string;
     connectedIds: Set<string>;
-    trackedDevices: Set<string>;
-    toggleTracking: (deviceId: string) => void;
+    trackedDevices: Map<string, DeviceSettings>;
+    toggleTracking: (deviceId: string, settings?: Partial<DeviceSettings>) => void;
+    updateDeviceSettings: (deviceId: string, settings: Partial<DeviceSettings>) => void;
+    distanceUnit: 'meters' | 'feet' | 'auto';
+    updateDistanceUnit: (unit: 'meters' | 'feet' | 'auto') => void;
 }
 
 const RadarContext = createContext<RadarContextType>({
@@ -30,8 +39,11 @@ const RadarContext = createContext<RadarContextType>({
     stopScan: () => { },
     bluetoothState: 'Unknown',
     connectedIds: new Set(),
-    trackedDevices: new Set(),
+    trackedDevices: new Map(),
     toggleTracking: () => { },
+    updateDeviceSettings: () => { },
+    distanceUnit: 'auto',
+    updateDistanceUnit: () => { },
 });
 
 export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -48,7 +60,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const [bluetoothState, setBluetoothState] = useState('Unknown');
     const [connectedIds, setConnectedIds] = useState<Set<string>>(new Set());
-    const [trackedDevices, setTrackedDevices] = useState<Set<string>>(new Set());
+    const [trackedDevices, setTrackedDevices] = useState<Map<string, DeviceSettings>>(new Map());
 
     // Load tracked devices
     useEffect(() => {
@@ -56,8 +68,20 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             try {
                 const json = await AsyncStorage.getItem('trackedDevices');
                 if (json) {
-                    const ids = JSON.parse(json);
-                    setTrackedDevices(new Set(ids));
+                    const raw = JSON.parse(json);
+                    // Handle migration from Set (array of strings) to Map
+                    if (Array.isArray(raw)) {
+                        // Old format: just IDs
+                        const map = new Map<string, DeviceSettings>();
+                        raw.forEach((id: string) => {
+                            map.set(id, { notifyOnLost: true, notifyOnFound: false });
+                        });
+                        setTrackedDevices(map);
+                    } else {
+                        // New format: object/map
+                        const map = new Map<string, DeviceSettings>(Object.entries(raw));
+                        setTrackedDevices(map);
+                    }
                 }
             } catch (e) {
                 console.warn('Failed to load tracked devices', e);
@@ -66,16 +90,36 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         loadTracked();
     }, []);
 
-    const toggleTracking = async (deviceId: string) => {
+    const saveTrackedDevices = async (map: Map<string, DeviceSettings>) => {
+        try {
+            const obj = Object.fromEntries(map);
+            await AsyncStorage.setItem('trackedDevices', JSON.stringify(obj));
+        } catch (e) {
+            console.warn('Failed to save tracked devices', e);
+        }
+    };
+
+    const toggleTracking = async (deviceId: string, settings: Partial<DeviceSettings> = { notifyOnLost: true, notifyOnFound: false }) => {
         setTrackedDevices(prev => {
-            const next = new Set(prev);
+            const next = new Map(prev);
             if (next.has(deviceId)) {
                 next.delete(deviceId);
             } else {
-                next.add(deviceId);
+                next.set(deviceId, { notifyOnLost: true, notifyOnFound: false, ...settings });
             }
-            // Persist
-            AsyncStorage.setItem('trackedDevices', JSON.stringify(Array.from(next))).catch(e => console.warn('Failed to save tracked devices', e));
+            saveTrackedDevices(next);
+            return next;
+        });
+    };
+
+    const updateDeviceSettings = async (deviceId: string, settings: Partial<DeviceSettings>) => {
+        setTrackedDevices(prev => {
+            const next = new Map(prev);
+            const current = next.get(deviceId);
+            if (current) {
+                next.set(deviceId, { ...current, ...settings });
+                saveTrackedDevices(next);
+            }
             return next;
         });
     };
@@ -171,6 +215,8 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (state === 'PoweredOn') {
                 startScan();
             }
+            // Request notification permissions
+            await notificationService.requestPermissions();
         };
         init();
 
@@ -221,6 +267,17 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     if (existing && existing.rssi !== rssi) {
                         newMap.set(id, { ...existing, rssi, lastSeen: now });
                         changed = true;
+
+                        // Check Notify on Found (if it was previously lost/null)
+                        if (existing.rssi === null && rssi !== null) {
+                            const settings = trackedDevices.get(id);
+                            if (settings?.notifyOnFound) {
+                                notificationService.sendNotification(
+                                    'Device Found!',
+                                    `${existing.device.name || existing.customName || 'Device'} is back in range.`
+                                );
+                            }
+                        }
                     }
                 }
 
@@ -232,8 +289,27 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     }
 
                     if (now - data.lastSeen > 15000) {
-                        newMap.delete(id);
-                        changed = true;
+                        // If it has a name or is Apple, keep it but mark as lost (rssi = null)
+                        const hasName = data.device.name || data.device.localName || data.customName;
+                        if (hasName) {
+                            if (data.rssi !== null) {
+                                newMap.set(id, { ...data, rssi: null });
+                                changed = true;
+
+                                // Check Notify on Lost
+                                const settings = trackedDevices.get(id);
+                                if (settings?.notifyOnLost) {
+                                    notificationService.sendNotification(
+                                        'Device Lost!',
+                                        `${data.device.name || data.customName || 'Device'} has gone out of range.`
+                                    );
+                                }
+                            }
+                        } else {
+                            // Unknown devices still get deleted
+                            newMap.delete(id);
+                            changed = true;
+                        }
                     }
                 }
                 return changed ? newMap : prev;
@@ -264,11 +340,31 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return rssiB - rssiA;
     });
 
+    const [distanceUnit, setDistanceUnit] = useState<'meters' | 'feet' | 'auto'>('auto');
+
+    // Load settings
+    useEffect(() => {
+        const loadSettings = async () => {
+            try {
+                const unit = await AsyncStorage.getItem('distanceUnit');
+                if (unit) setDistanceUnit(unit as any);
+            } catch (e) {
+                console.warn('Failed to load settings', e);
+            }
+        };
+        loadSettings();
+    }, []);
+
+    const updateDistanceUnit = async (unit: 'meters' | 'feet' | 'auto') => {
+        setDistanceUnit(unit);
+        await AsyncStorage.setItem('distanceUnit', unit);
+    };
+
     return (
-        <RadarContext.Provider value={{ isScanning, devices, startScan, stopScan, bluetoothState, connectedIds, trackedDevices, toggleTracking }}>
+        <RadarContext.Provider value={{ isScanning, devices, startScan, stopScan, bluetoothState, connectedIds, trackedDevices, toggleTracking, updateDeviceSettings, distanceUnit, updateDistanceUnit }}>
             {children}
         </RadarContext.Provider>
     );
 };
 
-export const useRadar = () => useContext(RadarContext);
+

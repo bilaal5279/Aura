@@ -1,20 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Blur, Canvas, Circle, vec } from '@shopify/react-native-skia';
 import { Audio } from 'expo-av';
+
 import * as Haptics from 'expo-haptics';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Dimensions, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { Easing, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
-import { SPACING } from '../../src/constants/theme';
+import { COLORS, SPACING } from '../../src/constants/theme';
 import { useRadar } from '../../src/hooks/useRadar';
 
 const { width, height } = Dimensions.get('window');
 const CENTER = vec(width / 2, height / 3);
 
+import { Confetti } from '../../src/components/Confetti';
 import { bleService } from '../../src/services/ble/BleService';
+import { RssiSmoother } from '../../src/services/tracking/KalmanFilter';
 
+import { Modal } from 'react-native'; // Import Modal
 import { PaywallModal } from '../../src/components/PaywallModal';
+import { DeviceSettings } from '../../src/context/RadarContext';
 
 export default function DeviceDetailScreen() {
     const { id, name } = useLocalSearchParams();
@@ -23,7 +28,7 @@ export default function DeviceDetailScreen() {
 
     // Persist last known device data to prevent UI flickering/crash
     const lastKnownDevice = useRef<any>(null);
-    const deviceData = devices.find(d => d.device.id === id);
+    const deviceData = devices.find((d: any) => d.device.id === id);
 
     if (deviceData) {
         lastKnownDevice.current = deviceData;
@@ -34,12 +39,14 @@ export default function DeviceDetailScreen() {
     const deviceName = activeDevice?.device.name || activeDevice?.device.localName || (name as string) || 'Unknown Device';
 
     const [liveRssi, setLiveRssi] = useState<number | null>(null);
+    const smoother = useRef(new RssiSmoother()).current;
 
     useEffect(() => {
         if (id) {
             // Start specific scan for this device
             bleService.startDeviceSpecificScan(id as string, deviceName, (rssi: number) => {
-                setLiveRssi(rssi);
+                const smoothedRssi = smoother.filter(rssi);
+                setLiveRssi(smoothedRssi);
             });
 
             return () => {
@@ -54,12 +61,56 @@ export default function DeviceDetailScreen() {
     // Normalized 0 to 1
     const signalStrength = Math.max(0, Math.min(1, (rssi + 100) / 50));
 
+    const { trackedDevices, toggleTracking, updateDeviceSettings, distanceUnit } = useRadar();
+    const deviceSettings = trackedDevices.get(id as string);
+    const isTracked = !!deviceSettings;
+
+    // Distance Calculation
+    const calculateDistance = (rssi: number) => {
+        const txPower = -60;
+        const n = 2.5;
+        const exponent = (txPower - rssi) / (10 * n);
+        const meters = Math.pow(10, exponent);
+
+        if (distanceUnit === 'feet') return `${(meters * 3.28084).toFixed(1)} ft`;
+        if (distanceUnit === 'meters') return `${meters.toFixed(1)} m`;
+
+        // Auto: Use feet if US locale (mocked here as simple toggle for now, or just default meters)
+        // For simplicity in this context, let's default to meters for auto unless we have locale info.
+        // Or we can just show meters.
+        return `${meters.toFixed(1)} m`;
+    };
+
+    const distanceText = calculateDistance(rssi);
+
     const [soundEnabled, setSoundEnabled] = useState(false);
     const [vibrationEnabled, setVibrationEnabled] = useState(true);
     const [backgroundTrackingEnabled, setBackgroundTrackingEnabled] = useState(false);
     const [showPaywall, setShowPaywall] = useState(false);
     const [isPro, setIsPro] = useState(false); // Mock Pro status
     const [sound, setSound] = useState<Audio.Sound>();
+    const [showSettings, setShowSettings] = useState(false);
+    const [isFound, setIsFound] = useState(false);
+
+    const handleFound = () => {
+        setIsFound(true);
+        setSoundEnabled(false);
+        setVibrationEnabled(false);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    };
+
+    const handleToggleSetting = (setting: keyof DeviceSettings) => {
+        if (!isPro) {
+            setShowPaywall(true);
+            return;
+        }
+        if (!isTracked) {
+            // If not tracked, enable tracking with default + this setting
+            toggleTracking(id as string, { [setting]: true });
+        } else {
+            updateDeviceSettings(id as string, { [setting]: !deviceSettings[setting] });
+        }
+    };
 
     // Animation Values
     const pulse = useSharedValue(0);
@@ -82,7 +133,7 @@ export default function DeviceDetailScreen() {
                 const { sound } = await Audio.Sound.createAsync(
                     // Using a generic beep sound from a reliable source or asset
                     // For now, we'll use a placeholder. In a real app, require('./assets/beep.mp3')
-                    { uri: 'https://cdn.freesound.org/previews/352/352651_4019029-lq.mp3' }
+                    require('../../assets/geiger.wav')
                 );
                 setSound(sound);
             } catch (error) {
@@ -100,7 +151,7 @@ export default function DeviceDetailScreen() {
 
     // Feedback Loop (Haptic + Sound)
     useEffect(() => {
-        const intervalMs = 2000 - (signalStrength * 1800); // 2000ms (Far) to 200ms (Near)
+        const intervalMs = 1000 - (signalStrength * 950); // 1000ms (Far) to 50ms (Near)
 
         const interval = setInterval(async () => {
             // Haptics
@@ -123,7 +174,7 @@ export default function DeviceDetailScreen() {
                     console.log('Error playing sound', error);
                 }
             }
-        }, Math.max(200, intervalMs));
+        }, Math.max(50, intervalMs));
 
         return () => clearInterval(interval);
     }, [signalStrength, vibrationEnabled, soundEnabled, sound]);
@@ -137,18 +188,9 @@ export default function DeviceDetailScreen() {
 
     const orbColor = getOrbColor(signalStrength);
 
-    const handleBackgroundToggle = (value: boolean) => {
-        if (value && !isPro) {
-            setShowPaywall(true);
-            return;
-        }
-        setBackgroundTrackingEnabled(value);
-    };
-
     const handlePurchase = () => {
         setIsPro(true);
         setShowPaywall(false);
-        setBackgroundTrackingEnabled(true);
     };
 
     return (
@@ -163,7 +205,9 @@ export default function DeviceDetailScreen() {
                 <Text style={styles.headerTitle} numberOfLines={1}>
                     {deviceName}
                 </Text>
-                <View style={{ width: 28 }} />
+                <TouchableOpacity onPress={() => setShowSettings(true)} style={styles.settingsButton}>
+                    <Ionicons name="settings-sharp" size={24} color="#FFF" />
+                </TouchableOpacity>
             </View>
 
             {/* Proximity Orb Visualization */}
@@ -209,7 +253,7 @@ export default function DeviceDetailScreen() {
                 </View>
 
                 {/* Technical Detail */}
-                <Text style={styles.dbmText}>Signal Strength: {Math.round(rssi)} dBm</Text>
+                <Text style={styles.dbmText}>Signal Strength: {Math.round(rssi)} dBm • {distanceText}</Text>
             </View>
 
             {/* Controls */}
@@ -230,7 +274,7 @@ export default function DeviceDetailScreen() {
                 <View style={styles.controlRow}>
                     <View style={styles.controlText}>
                         <Text style={styles.controlTitle}>Sound Indicator</Text>
-                        <Text style={styles.controlSubtitle}>Geiger-counter style audio feedback</Text>
+                        <Text style={styles.controlSubtitle}>Play Geiger-counter sound on phone</Text>
                     </View>
                     <Switch
                         value={soundEnabled}
@@ -240,19 +284,56 @@ export default function DeviceDetailScreen() {
                     />
                 </View>
 
-                <View style={styles.controlRow}>
-                    <View style={styles.controlText}>
-                        <Text style={styles.controlTitle}>Background Tracking</Text>
-                        <Text style={styles.controlSubtitle}>Notify when left behind</Text>
-                    </View>
-                    <Switch
-                        value={backgroundTrackingEnabled}
-                        onValueChange={handleBackgroundToggle}
-                        trackColor={{ false: '#333', true: orbColor }}
-                        thumbColor="#FFF"
-                    />
-                </View>
+
+                {/* I Found It Button */}
+                <TouchableOpacity
+                    style={styles.foundButton}
+                    onPress={handleFound}
+                >
+                    <Ionicons name="checkmark-circle" size={24} color="#000" />
+                    <Text style={styles.foundButtonText}>I Found It!</Text>
+                </TouchableOpacity>
             </View>
+
+            {/* Confetti Overlay */}
+            {isFound && <Confetti />}
+
+            {/* Settings Modal */}
+            <Modal
+                visible={showSettings}
+                transparent
+                animationType="slide"
+                onRequestClose={() => setShowSettings(false)}
+            >
+                <View style={styles.modalOverlay}>
+
+                    <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Device Settings</Text>
+                            <TouchableOpacity onPress={() => setShowSettings(false)}>
+                                <Ionicons name="close" size={24} color="#FFF" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={styles.settingRow}>
+                            <View>
+                                <Text style={styles.settingLabel}>Notify on Lost</Text>
+                                <Text style={styles.settingDesc}>Alert when device signal is lost</Text>
+                            </View>
+                            <Switch
+                                value={deviceSettings?.notifyOnLost || false}
+                                onValueChange={() => handleToggleSetting('notifyOnLost')}
+                                trackColor={{ false: '#333', true: COLORS.primary }}
+                                thumbColor="#FFF"
+                            />
+                        </View>
+
+                        <Text style={styles.modalNote}>
+                            More settings available in the main app settings.
+                        </Text>
+                    </View>
+                </View>
+            </Modal>
 
             <PaywallModal
                 visible={showPaywall}
@@ -289,10 +370,11 @@ const styles = StyleSheet.create({
         letterSpacing: 1,
     },
     visualizerContainer: {
-        height: height * 0.45, // Reduced slightly to give more space below
+        height: height * 0.45,
         width: width,
         alignItems: 'center',
         justifyContent: 'center',
+        marginTop: -40, // Pull up slightly
     },
     signalContainer: {
         alignItems: 'center',
@@ -364,5 +446,108 @@ const styles = StyleSheet.create({
     controlSubtitle: {
         fontSize: 12,
         color: '#888',
+    },
+    settingsButton: {
+        padding: 8,
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.8)',
+        justifyContent: 'flex-end',
+    },
+    modalContent: {
+        backgroundColor: '#1A1A1A',
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        padding: SPACING.l,
+        paddingBottom: 40,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: SPACING.l,
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#FFF',
+    },
+    settingRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: SPACING.l,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        padding: SPACING.m,
+        borderRadius: 12,
+    },
+    settingLabel: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#FFF',
+        marginBottom: 4,
+    },
+    settingDesc: {
+        fontSize: 12,
+        color: '#888',
+    },
+    historyButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        padding: SPACING.m,
+        borderRadius: 12,
+        gap: 8,
+        marginTop: SPACING.s,
+    },
+    historyButtonText: {
+        color: '#FFF',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    actionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: COLORS.primary,
+        padding: SPACING.m,
+        borderRadius: 12,
+        gap: 8,
+        marginTop: SPACING.s,
+    },
+    actionButtonText: {
+        color: '#000',
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
+    modalNote: {
+        color: COLORS.textSecondary,
+        fontSize: 12,
+        textAlign: 'center',
+        marginTop: SPACING.l,
+    },
+    foundButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#00FF9D', // Neon Green
+        padding: SPACING.l,
+        borderRadius: 16,
+        gap: 8,
+        marginTop: SPACING.m,
+        shadowColor: '#00FF9D',
+        shadowOffset: { width: 0, height: 0 },
+        shadowOpacity: 0.5,
+        shadowRadius: 20,
+        elevation: 5,
+    },
+    foundButtonText: {
+        color: '#000',
+        fontSize: 18,
+        fontWeight: 'bold',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
     },
 });

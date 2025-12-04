@@ -1,6 +1,6 @@
 import { BackdropFilter, Blur, Canvas, Fill, RoundedRect, rect, rrect } from '@shopify/react-native-skia';
 import React from 'react';
-import { StyleSheet, View, ViewStyle } from 'react-native';
+import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { COLORS } from '../constants/theme';
 
 interface GlassCardProps {
@@ -8,7 +8,7 @@ interface GlassCardProps {
     height?: number;
     borderRadius?: number;
     intensity?: number;
-    style?: ViewStyle;
+    style?: StyleProp<ViewStyle>;
     children?: React.ReactNode;
 }
 

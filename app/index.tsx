@@ -22,9 +22,9 @@ const calculateDistance = (rssi: number | null) => {
     return Math.pow(10, exponent);
 };
 
+import { NotifyFoundModal } from '../src/components/NotifyFoundModal';
 
-
-const DeviceItem = ({ item, isPro, onPress, isTracked, onToggleTrack }: { item: ScannedDevice, isPro: boolean, onPress: () => void, isTracked: boolean, onToggleTrack: () => void }) => {
+const DeviceItem = ({ item, isPro, onPress }: { item: ScannedDevice, isPro: boolean, onPress: () => void }) => {
     // Simple icon logic
     let icon = 'bluetooth';
     const name = (item.device.name || '').toLowerCase();
@@ -34,27 +34,36 @@ const DeviceItem = ({ item, isPro, onPress, isTracked, onToggleTrack }: { item: 
     else if (name.includes('headphone') || name.includes('bud') || name.includes('pod')) icon = 'headset';
     else if (name.includes('watch')) icon = 'watch';
 
+    const isLost = item.rssi === null;
     const distance = calculateDistance(item.rssi);
+    const { distanceUnit } = useRadar();
+
+    const getDistanceText = (dist: number | null) => {
+        if (!dist) return 'Signal Detected';
+        if (distanceUnit === 'feet') return `${(dist * 3.28084).toFixed(1)}ft away`;
+        if (distanceUnit === 'meters') return `${dist.toFixed(1)}m away`;
+        return `${dist.toFixed(1)}m away`; // Default/Auto
+    };
 
     return (
         <TouchableOpacity onPress={onPress}>
             <View style={styles.itemContainer}>
-                <GlassCard width={350} height={90} intensity={15} style={styles.itemCard}>
+                <GlassCard width={350} height={90} intensity={15} style={[styles.itemCard, isLost && { opacity: 0.6 }]}>
                     <View style={styles.itemContent}>
-                        <View style={styles.iconContainer}>
-                            <Ionicons name={icon as any} size={24} color={COLORS.text} />
+                        <View style={[styles.iconContainer, isLost && { backgroundColor: 'rgba(255,255,255,0.05)' }]}>
+                            <Ionicons name={icon as any} size={24} color={isLost ? COLORS.textSecondary : COLORS.text} />
                         </View>
                         <View style={styles.textContainer}>
-                            <Text style={[styles.deviceName, { color: '#FFFFFF' }]} numberOfLines={1}>
+                            <Text style={[styles.deviceName, { color: isLost ? COLORS.textSecondary : '#FFFFFF' }]} numberOfLines={1}>
                                 {item.device.name || item.device.localName || item.customName || 'Unknown Device'}
                             </Text>
                             <Text style={[styles.deviceId, { color: '#AAAAAA' }]}>{item.device.id}</Text>
                             <View style={styles.statusRow}>
-                                <Text style={styles.distanceText}>
-                                    {distance ? `${distance.toFixed(1)}m away` : 'Signal Detected'}
+                                <Text style={[styles.distanceText, isLost && { color: '#FF3B30' }]}>
+                                    {isLost ? 'Signal Lost' : getDistanceText(distance)}
                                 </Text>
                             </View>
-                            {distance && (
+                            {!isLost && distance && (
                                 <View style={styles.distanceBarContainer}>
                                     <View
                                         style={[
@@ -68,15 +77,6 @@ const DeviceItem = ({ item, isPro, onPress, isTracked, onToggleTrack }: { item: 
                                 </View>
                             )}
                         </View>
-                        <TouchableOpacity
-                            style={[styles.trackButton, isTracked && styles.trackButtonActive]}
-                            onPress={(e) => {
-                                e.stopPropagation();
-                                onToggleTrack();
-                            }}
-                        >
-                            <Ionicons name={isTracked ? "eye" : "eye-off-outline"} size={20} color={isTracked ? '#000' : COLORS.textSecondary} />
-                        </TouchableOpacity>
                     </View>
                 </GlassCard>
             </View>
@@ -90,38 +90,44 @@ export default function Dashboard() {
     const [showPaywall, setShowPaywall] = useState(false);
     const [isPro, setIsPro] = useState(false);
     const [selectedDevice, setSelectedDevice] = useState<ScannedDevice | null>(null);
+    const [showNotifyModal, setShowNotifyModal] = useState(false);
 
     const handleDevicePress = (device: ScannedDevice) => {
-        if (!isPro) {
+        if (device.rssi === null) {
+            // Device is lost
             setSelectedDevice(device);
-            setShowPaywall(true);
+            setShowNotifyModal(true);
         } else {
-            router.push({
-                pathname: `/device/${device.device.id}` as any,
-                params: { name: device.device.name || 'Unknown Device' }
-            });
+            // Device is live
+            if (!isPro) {
+                setSelectedDevice(device);
+                setShowPaywall(true);
+            } else {
+                router.push({
+                    pathname: `/device/${device.device.id}` as any,
+                    params: { name: device.device.name || 'Unknown Device' }
+                });
+            }
+        }
+    };
+
+    const handleNotifyConfirm = () => {
+        if (!isPro) {
+            setShowNotifyModal(false);
+            setTimeout(() => setShowPaywall(true), 300); // Small delay for smooth transition
+        } else {
+            if (selectedDevice) {
+                toggleTracking(selectedDevice.device.id, { notifyOnFound: true });
+            }
+            setShowNotifyModal(false);
         }
     };
 
     const handlePurchase = () => {
         setIsPro(true);
         setShowPaywall(false);
-        if (selectedDevice) {
-            // If we were trying to track, toggle it now
-            // But we don't know if the user clicked the row or the toggle.
-            // For simplicity, if they just bought pro, we can just let them click again.
-            // Or we could track if it was a toggle action.
-            // Let's just reset.
-        }
-    };
-
-    const handleToggleTrack = (device: ScannedDevice) => {
-        if (!isPro) {
-            setSelectedDevice(device);
-            setShowPaywall(true);
-        } else {
-            toggleTracking(device.device.id);
-        }
+        // If we were in the middle of a notify flow, maybe we should resume it?
+        // For now, user can just click again.
     };
 
     const enableBluetooth = async () => {
@@ -191,8 +197,6 @@ export default function Dashboard() {
                         item={item}
                         isPro={isPro}
                         onPress={() => handleDevicePress(item)}
-                        isTracked={trackedDevices.has(item.device.id)}
-                        onToggleTrack={() => handleToggleTrack(item)}
                     />
                 )}
                 renderSectionHeader={({ section: { title } }) => (
@@ -225,6 +229,13 @@ export default function Dashboard() {
                 visible={showPaywall}
                 onClose={() => setShowPaywall(false)}
                 onPurchase={handlePurchase}
+            />
+
+            <NotifyFoundModal
+                visible={showNotifyModal}
+                deviceName={selectedDevice?.device.name || selectedDevice?.device.localName || selectedDevice?.customName || 'Device'}
+                onClose={() => setShowNotifyModal(false)}
+                onConfirm={handleNotifyConfirm}
             />
         </View>
     );
@@ -411,17 +422,5 @@ const styles = StyleSheet.create({
     distanceBarFill: {
         height: '100%',
         borderRadius: 2,
-    },
-    trackButton: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginLeft: SPACING.m,
-    },
-    trackButtonActive: {
-        backgroundColor: COLORS.primary,
     },
 });
