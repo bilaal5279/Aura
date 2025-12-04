@@ -24,7 +24,7 @@ const calculateDistance = (rssi: number | null) => {
 
 
 
-const DeviceItem = ({ item, isPro, onPress }: { item: ScannedDevice, isPro: boolean, onPress: () => void }) => {
+const DeviceItem = ({ item, isPro, onPress, isTracked, onToggleTrack }: { item: ScannedDevice, isPro: boolean, onPress: () => void, isTracked: boolean, onToggleTrack: () => void }) => {
     // Simple icon logic
     let icon = 'bluetooth';
     const name = (item.device.name || '').toLowerCase();
@@ -54,7 +54,29 @@ const DeviceItem = ({ item, isPro, onPress }: { item: ScannedDevice, isPro: bool
                                     {distance ? `${distance.toFixed(1)}m away` : 'Signal Detected'}
                                 </Text>
                             </View>
+                            {distance && (
+                                <View style={styles.distanceBarContainer}>
+                                    <View
+                                        style={[
+                                            styles.distanceBarFill,
+                                            {
+                                                width: `${Math.min(100, Math.max(0, (1 - distance / 10) * 100))}%`,
+                                                backgroundColor: distance < 2 ? '#4CAF50' : distance < 5 ? '#FFC107' : '#2196F3'
+                                            }
+                                        ]}
+                                    />
+                                </View>
+                            )}
                         </View>
+                        <TouchableOpacity
+                            style={[styles.trackButton, isTracked && styles.trackButtonActive]}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                onToggleTrack();
+                            }}
+                        >
+                            <Ionicons name={isTracked ? "eye" : "eye-off-outline"} size={20} color={isTracked ? '#000' : COLORS.textSecondary} />
+                        </TouchableOpacity>
                     </View>
                 </GlassCard>
             </View>
@@ -64,7 +86,7 @@ const DeviceItem = ({ item, isPro, onPress }: { item: ScannedDevice, isPro: bool
 
 export default function Dashboard() {
     const router = useRouter();
-    const { isScanning, devices, bluetoothState, connectedIds } = useRadar();
+    const { isScanning, devices, bluetoothState, connectedIds, trackedDevices, toggleTracking } = useRadar();
     const [showPaywall, setShowPaywall] = useState(false);
     const [isPro, setIsPro] = useState(false);
     const [selectedDevice, setSelectedDevice] = useState<ScannedDevice | null>(null);
@@ -85,10 +107,20 @@ export default function Dashboard() {
         setIsPro(true);
         setShowPaywall(false);
         if (selectedDevice) {
-            router.push({
-                pathname: `/device/${selectedDevice.device.id}` as any,
-                params: { name: selectedDevice.device.name || 'Unknown Device' }
-            });
+            // If we were trying to track, toggle it now
+            // But we don't know if the user clicked the row or the toggle.
+            // For simplicity, if they just bought pro, we can just let them click again.
+            // Or we could track if it was a toggle action.
+            // Let's just reset.
+        }
+    };
+
+    const handleToggleTrack = (device: ScannedDevice) => {
+        if (!isPro) {
+            setSelectedDevice(device);
+            setShowPaywall(true);
+        } else {
+            toggleTracking(device.device.id);
         }
     };
 
@@ -159,6 +191,8 @@ export default function Dashboard() {
                         item={item}
                         isPro={isPro}
                         onPress={() => handleDevicePress(item)}
+                        isTracked={trackedDevices.has(item.device.id)}
+                        onToggleTrack={() => handleToggleTrack(item)}
                     />
                 )}
                 renderSectionHeader={({ section: { title } }) => (
@@ -365,5 +399,29 @@ const styles = StyleSheet.create({
     enableButtonText: {
         color: '#FFF',
         fontWeight: '600',
+    },
+    distanceBarContainer: {
+        height: 4,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        borderRadius: 2,
+        marginTop: 6,
+        width: '100%',
+        overflow: 'hidden',
+    },
+    distanceBarFill: {
+        height: '100%',
+        borderRadius: 2,
+    },
+    trackButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        backgroundColor: 'rgba(255,255,255,0.1)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginLeft: SPACING.m,
+    },
+    trackButtonActive: {
+        backgroundColor: COLORS.primary,
     },
 });

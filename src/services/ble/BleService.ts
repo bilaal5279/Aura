@@ -1,4 +1,4 @@
-import { PermissionsAndroid, Platform } from 'react-native';
+import { Linking, PermissionsAndroid, Platform } from 'react-native';
 import { BleManager, Device, ScanMode } from 'react-native-ble-plx';
 import { backgroundTracker } from '../tracking/BackgroundTracker';
 
@@ -45,7 +45,15 @@ class BleService {
             try {
                 await this.manager.enable();
             } catch (e) {
-                console.warn('Failed to enable Bluetooth', e);
+                console.warn('Failed to enable Bluetooth directly, opening settings...', e);
+                // Fallback to opening settings
+                try {
+                    // Try to open specific Bluetooth settings first
+                    await Linking.sendIntent('android.settings.BLUETOOTH_SETTINGS');
+                } catch (linkingError) {
+                    console.warn('Failed to open Bluetooth settings via intent, trying generic settings', linkingError);
+                    await Linking.openSettings();
+                }
             }
         }
     }

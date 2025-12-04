@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Device } from 'react-native-ble-plx';
 import { bleService } from '../services/ble/BleService';
@@ -18,6 +19,8 @@ interface RadarContextType {
     stopScan: () => void;
     bluetoothState: string;
     connectedIds: Set<string>;
+    trackedDevices: Set<string>;
+    toggleTracking: (deviceId: string) => void;
 }
 
 const RadarContext = createContext<RadarContextType>({
@@ -27,6 +30,8 @@ const RadarContext = createContext<RadarContextType>({
     stopScan: () => { },
     bluetoothState: 'Unknown',
     connectedIds: new Set(),
+    trackedDevices: new Set(),
+    toggleTracking: () => { },
 });
 
 export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -43,6 +48,37 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const [bluetoothState, setBluetoothState] = useState('Unknown');
     const [connectedIds, setConnectedIds] = useState<Set<string>>(new Set());
+    const [trackedDevices, setTrackedDevices] = useState<Set<string>>(new Set());
+
+    // Load tracked devices
+    useEffect(() => {
+        const loadTracked = async () => {
+            try {
+                const json = await AsyncStorage.getItem('trackedDevices');
+                if (json) {
+                    const ids = JSON.parse(json);
+                    setTrackedDevices(new Set(ids));
+                }
+            } catch (e) {
+                console.warn('Failed to load tracked devices', e);
+            }
+        };
+        loadTracked();
+    }, []);
+
+    const toggleTracking = async (deviceId: string) => {
+        setTrackedDevices(prev => {
+            const next = new Set(prev);
+            if (next.has(deviceId)) {
+                next.delete(deviceId);
+            } else {
+                next.add(deviceId);
+            }
+            // Persist
+            AsyncStorage.setItem('trackedDevices', JSON.stringify(Array.from(next))).catch(e => console.warn('Failed to save tracked devices', e));
+            return next;
+        });
+    };
 
     const startScan = async () => {
         if (isScanning) return;
@@ -229,7 +265,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     });
 
     return (
-        <RadarContext.Provider value={{ isScanning, devices, startScan, stopScan, bluetoothState, connectedIds }}>
+        <RadarContext.Provider value={{ isScanning, devices, startScan, stopScan, bluetoothState, connectedIds, trackedDevices, toggleTracking }}>
             {children}
         </RadarContext.Provider>
     );
