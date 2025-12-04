@@ -138,6 +138,14 @@ export default function DeviceDetailScreen() {
     useEffect(() => {
         async function loadSound() {
             try {
+                // Configure Audio Session
+                await Audio.setAudioModeAsync({
+                    playsInSilentModeIOS: true,
+                    staysActiveInBackground: true,
+                    shouldDuckAndroid: true,
+                    playThroughEarpieceAndroid: false,
+                });
+
                 const { sound } = await Audio.Sound.createAsync(
                     // Using a generic beep sound from a reliable source or asset
                     // For now, we'll use a placeholder. In a real app, require('./assets/beep.mp3')
@@ -158,6 +166,8 @@ export default function DeviceDetailScreen() {
     }, []);
 
     // Feedback Loop (Haptic + Sound)
+    const isSoundBusy = useRef(false);
+
     useEffect(() => {
         const intervalMs = 1000 - (signalStrength * 950); // 1000ms (Far) to 50ms (Near)
 
@@ -175,11 +185,19 @@ export default function DeviceDetailScreen() {
 
             // Sound (Geiger Counter)
             if (soundEnabled && sound && signalStrength > 0.1) {
+                if (isSoundBusy.current) return;
+
                 try {
-                    await sound.setPositionAsync(0);
-                    await sound.playAsync();
+                    isSoundBusy.current = true;
+                    const status = await sound.getStatusAsync();
+                    if (status.isLoaded) {
+                        await sound.setPositionAsync(0);
+                        await sound.playAsync();
+                    }
                 } catch (error) {
-                    console.log('Error playing sound', error);
+                    // console.log('Error playing sound', error);
+                } finally {
+                    isSoundBusy.current = false;
                 }
             }
         }, Math.max(50, intervalMs));

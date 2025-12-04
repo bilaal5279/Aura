@@ -231,26 +231,28 @@ export default function Dashboard() {
                             : (bluetoothState === 'Unknown' ? 'Initializing...' : 'Bluetooth Off / Offline')}
                     </Text>
                 </View>
-                <TouchableOpacity
-                    onPress={() => showPaywall()}
-                    style={[
-                        styles.upgradeButton,
-                        {
-                            borderColor: isDark ? COLORS.primary : '#E0E0E0',
-                            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#FFF',
-                            shadowColor: "#000",
-                            shadowOffset: {
-                                width: 0,
-                                height: 2,
-                            },
-                            shadowOpacity: isDark ? 0 : 0.1,
-                            shadowRadius: 3.84,
-                            elevation: isDark ? 0 : 5,
-                        }
-                    ]}
-                >
-                    <Ionicons name="diamond-outline" size={24} color={isDark ? COLORS.primary : '#000'} />
-                </TouchableOpacity>
+                {!isPro && (
+                    <TouchableOpacity
+                        onPress={() => showPaywall()}
+                        style={[
+                            styles.upgradeButton,
+                            {
+                                borderColor: isDark ? COLORS.primary : '#E0E0E0',
+                                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#FFF',
+                                shadowColor: "#000",
+                                shadowOffset: {
+                                    width: 0,
+                                    height: 2,
+                                },
+                                shadowOpacity: isDark ? 0 : 0.1,
+                                shadowRadius: 3.84,
+                                elevation: isDark ? 0 : 5,
+                            }
+                        ]}
+                    >
+                        <Ionicons name="diamond-outline" size={24} color={isDark ? COLORS.primary : '#000'} />
+                    </TouchableOpacity>
+                )}
             </View>
 
             {bluetoothState !== 'PoweredOn' && bluetoothState !== 'Unknown' && (
