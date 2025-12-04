@@ -56,7 +56,8 @@
         "android.permission.FOREGROUND_SERVICE_LOCATION",
         "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
         "android.permission.VIBRATE",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.BLUETOOTH_ADVERTISE"
       ],
       "config": {
         "googleMaps": {
@@ -126,7 +127,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "18393588-5ed6-41f6-a2aa-8043999e9379"
+        "projectId": "5344380f-c8f3-436e-a405-9175905a923e"
       }
     }
   }
