@@ -77,12 +77,14 @@ class BleService {
     }
 
     private scan(onDeviceFound: (device: Device) => void) {
-        this.manager.startDeviceScan(null, { scanMode: ScanMode.LowLatency }, (error, device) => {
+        console.log('[BleService] Starting main scan (allowDuplicates: true)...');
+        this.manager.startDeviceScan(null, { scanMode: ScanMode.LowLatency, allowDuplicates: true }, (error, device) => {
             if (error) {
-                console.error('BLE Scan Error:', error);
+                console.error('[BleService] Scan Error:', error);
                 return;
             }
             if (device) {
+                // console.log(`[BleService] Scanned: ${device.id} (${device.name}) RSSI: ${device.rssi}`);
                 // Update last seen map
                 if (device.id) {
                     this.lastSeenDevices.set(device.id, {
@@ -191,9 +193,29 @@ class BleService {
 
         console.log(`[BleService] Scanning for ${devicesToScan.length} devices with notifications enabled.`);
 
+        // Collect Service UUIDs for targeted scanning (Required for iOS Background)
+        const serviceUUIDs = new Set<string>();
+
+        // Add common services that most devices have, just in case
+        serviceUUIDs.add('180F'); // Battery Service
+        serviceUUIDs.add('180A'); // Device Information
+        serviceUUIDs.add('1800'); // Generic Access
+        serviceUUIDs.add('1801'); // Generic Attribute
+        serviceUUIDs.add('1812'); // HID (Keyboards, Mice)
+
+        // Add specific UUIDs from tracked devices
+        devicesToScan.forEach(([_, settings]) => {
+            if (settings.serviceUUIDs && settings.serviceUUIDs.length > 0) {
+                settings.serviceUUIDs.forEach(uuid => serviceUUIDs.add(uuid));
+            }
+        });
+
+        const scanUUIDs = Array.from(serviceUUIDs);
+        console.log(`[BleService] Targeted Scan UUIDs: ${scanUUIDs.join(', ')}`);
+
         // 2. Start a short scan
         this.manager.startDeviceScan(
-            null, // Scan for all, or use specific service UUIDs if needed for iOS: ['180F', '180A', ...]
+            Platform.OS === 'ios' ? scanUUIDs : null, // Target specific services on iOS
             { scanMode: ScanMode.LowLatency, allowDuplicates: true },
             async (error, device) => {
                 if (error) {

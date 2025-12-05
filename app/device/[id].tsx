@@ -12,7 +12,6 @@ import { COLORS, SPACING } from '../../src/constants/theme';
 import { DeviceSettings } from '../../src/context/RadarContext';
 import { useTheme } from '../../src/context/ThemeContext';
 import { useRadar } from '../../src/hooks/useRadar';
-import { bleService } from '../../src/services/ble/BleService';
 import { RssiSmoother } from '../../src/services/tracking/KalmanFilter';
 
 const { width, height } = Dimensions.get('window');
@@ -35,10 +34,15 @@ export default function DeviceDetailScreen() {
     // Use live data or fallback to last known
     const activeDevice = deviceData || lastKnownDevice.current;
     const deviceName = activeDevice?.device.name || activeDevice?.device.localName || (name as string) || 'Unknown Device';
+    const isLost = !deviceData && !!lastKnownDevice.current; // It was known, but now it's gone from the live list
 
     const [liveRssi, setLiveRssi] = useState<number | null>(null);
     const smoother = useRef(new RssiSmoother()).current;
 
+    // Removed specific scan effect to prevent stopping the global background scan.
+    // The global scan now uses allowDuplicates: true, providing real-time updates.
+
+    /*
     useEffect(() => {
         if (id) {
             // Start specific scan for this device
@@ -52,8 +56,12 @@ export default function DeviceDetailScreen() {
             };
         }
     }, [id, deviceName]);
+    */
 
-    const rssi = liveRssi !== null ? liveRssi : (activeDevice?.rssi || -100);
+    // Use the RSSI from the global state (which is now real-time)
+    const rawRssi = activeDevice?.rssi || -100;
+    // Smooth it for the UI
+    const rssi = smoother.filter(rawRssi);
 
     // Calibration: -100 (Far) to -50 (Near)
     // Normalized 0 to 1
@@ -259,11 +267,12 @@ export default function DeviceDetailScreen() {
                 </Text>
 
                 {/* Conversational Status */}
-                <Text style={[styles.signalLabel, { color: orbColor }]}>
-                    {signalStrength > 0.9 ? "IT'S RIGHT HERE!" :
-                        signalStrength > 0.7 ? "VERY CLOSE" :
-                            signalStrength > 0.5 ? "GETTING WARMER" :
-                                signalStrength > 0.3 ? "COLD" : "MOVE AROUND TO FIND SIGNAL"}
+                <Text style={[styles.signalLabel, { color: isLost ? colors.textSecondary : orbColor }]}>
+                    {isLost ? "SEARCHING..." :
+                        signalStrength > 0.9 ? "IT'S RIGHT HERE!" :
+                            signalStrength > 0.7 ? "VERY CLOSE" :
+                                signalStrength > 0.5 ? "GETTING WARMER" :
+                                    signalStrength > 0.3 ? "COLD" : "MOVE AROUND TO FIND SIGNAL"}
                 </Text>
 
                 {/* Visual Bar */}

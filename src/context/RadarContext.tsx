@@ -20,6 +20,7 @@ export interface ScannedDevice {
 export interface DeviceSettings {
     notifyOnLost: boolean;
     notifyOnFound: boolean;
+    serviceUUIDs?: string[];
 }
 
 interface RadarContextType {
@@ -218,12 +219,24 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const toggleTracking = async (deviceId: string, settings: Partial<DeviceSettings> = { notifyOnLost: true, notifyOnFound: false }) => {
         console.log(`[Radar] Toggling tracking for ${deviceId}`, settings);
+
+        // Get current device data to extract Service UUIDs
+        const deviceData = devicesRef.current.get(deviceId);
+        const serviceUUIDs = deviceData?.device.serviceUUIDs || [];
+
+        console.log(`[Radar] Capturing UUIDs for ${deviceId}:`, serviceUUIDs);
+
         setTrackedDevices(prev => {
             const next = new Map(prev);
             if (next.has(deviceId)) {
                 next.delete(deviceId);
             } else {
-                next.set(deviceId, { notifyOnLost: true, notifyOnFound: false, ...settings });
+                next.set(deviceId, {
+                    notifyOnLost: true,
+                    notifyOnFound: false,
+                    serviceUUIDs,
+                    ...settings
+                });
             }
             saveTrackedDevices(next);
             return next;
@@ -380,8 +393,8 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             // Watchdog: Check if scan is healthy
             if (isScanningRef.current) {
                 const timeSinceLastUpdate = now - lastScanUpdateRef.current;
-                // If no updates for 15 seconds, restart scan
-                if (timeSinceLastUpdate > 15000) {
+                // If no updates for 30 seconds (increased from 15), restart scan
+                if (timeSinceLastUpdate > 30000) {
                     console.log('[Radar] Scan watchdog triggered: restarting scan...');
                     bleService.stopScan();
                     // Small delay to ensure clean stop
@@ -453,10 +466,12 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 }
 
                 if (now - data.lastSeen > 15000) {
+                    console.log(`[Radar] Device ${id} timed out. Last seen: ${now - data.lastSeen}ms ago.`);
                     // If it has a name or is Apple, keep it but mark as lost (rssi = null)
                     const hasName = data.device.name || data.device.localName || data.customName;
                     if (hasName) {
                         if (data.rssi !== null) {
+                            console.log(`[Radar] Marking ${id} as LOST.`);
                             // Update Ref
                             currentMap.set(id, { ...data, rssi: null });
                             changed = true;
@@ -473,6 +488,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         }
                     } else {
                         // Unknown devices still get deleted
+                        // console.log(`[Radar] Removing unknown device ${id}`);
                         currentMap.delete(id);
                         changed = true;
                     }
