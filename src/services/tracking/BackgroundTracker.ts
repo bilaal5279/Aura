@@ -61,7 +61,7 @@ class BackgroundTracker {
             if (status === 'granted') {
                 await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
                     accuracy: Location.Accuracy.Balanced,
-                    distanceInterval: 25, // Update every 25 meters (more responsive)
+                    distanceInterval: 1, // Update every 1 meter (Extreme sensitivity for testing)
                     deferredUpdatesInterval: 5000, // Minimum 5 seconds between updates
                     pausesUpdatesAutomatically: false,
                     showsBackgroundLocationIndicator: true, // Required for background execution

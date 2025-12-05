@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { Device } from 'react-native-ble-plx';
 import Purchases, { CustomerInfo, PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import RevenueCatUI from 'react-native-purchases-ui';
@@ -378,7 +378,18 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
         init();
 
-        const subscription = bleService.onStateChange((state) => {
+        // Restart scan when app comes to foreground
+        const subscription = AppState.addEventListener('change', nextAppState => {
+            if (nextAppState === 'active') {
+                console.log('[Radar] App came to foreground, restarting scan...');
+                startScan();
+            } else if (nextAppState === 'background') {
+                console.log('[Radar] App went to background, stopping foreground scan...');
+                stopScan(); // Explicitly stop to save battery/cleanup
+            }
+        });
+
+        const bleSubscription = bleService.onStateChange((state) => {
             setBluetoothState(state);
             if (state === 'PoweredOn') {
                 startScan();
@@ -465,7 +476,10 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     continue;
                 }
 
-                if (now - data.lastSeen > 15000) {
+                // Only check for "Lost" if the app is active (foreground)
+                // When backgrounded, the OS stops the scan, so we would get false positives.
+                // We let the background task (BleService) handle "Lost" notifications during its periodic scans.
+                if (AppState.currentState === 'active' && now - data.lastSeen > 15000) {
                     console.log(`[Radar] Device ${id} timed out. Last seen: ${now - data.lastSeen}ms ago.`);
                     // If it has a name or is Apple, keep it but mark as lost (rssi = null)
                     const hasName = data.device.name || data.device.localName || data.customName;
