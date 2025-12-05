@@ -67,9 +67,39 @@ export default function DeviceDetailScreen() {
     // Normalized 0 to 1
     const signalStrength = Math.max(0, Math.min(1, (rssi + 100) / 50));
 
-    const { trackedDevices, toggleTracking, updateDeviceSettings, distanceUnit, backgroundTrackingEnabled, isPro, showPaywall } = useRadar();
+    const { trackedDevices, toggleTracking, updateDeviceSettings, distanceUnit, backgroundTrackingEnabled, isPro, showPaywall, freeScanUsed, useFreeScan } = useRadar();
     const deviceSettings = trackedDevices.get(id as string);
     const isTracked = !!deviceSettings;
+
+    // Free Scan Limit Logic
+    const isProRef = useRef(isPro);
+    const freeScanUsedRef = useRef(freeScanUsed);
+
+    useEffect(() => {
+        isProRef.current = isPro;
+        freeScanUsedRef.current = freeScanUsed;
+    }, [isPro, freeScanUsed]);
+
+    useEffect(() => {
+        const checkAccess = async () => {
+            if (!isPro && freeScanUsed) {
+                // Already used free scan -> Paywall
+                await showPaywall();
+                // If still not Pro after paywall closes, go back
+                if (!isProRef.current) {
+                    router.back();
+                }
+            }
+        };
+        checkAccess();
+
+        return () => {
+            // Mark as used on exit if they were not Pro and hadn't used it yet
+            if (!isProRef.current && !freeScanUsedRef.current) {
+                useFreeScan();
+            }
+        };
+    }, []);
 
     // Distance Calculation
     const calculateDistance = (rssi: number) => {

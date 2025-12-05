@@ -61,26 +61,27 @@ class BleService {
         }
     }
 
-    async startScan(onDeviceFound: (device: Device) => void) {
+    async startScan(onDeviceFound: (device: Device) => void, onError?: (error: any) => void) {
         const state = await this.manager.state();
         if (state === 'PoweredOn') {
-            this.scan(onDeviceFound);
+            this.scan(onDeviceFound, onError);
             return;
         }
 
         const subscription = this.manager.onStateChange((state) => {
             if (state === 'PoweredOn') {
-                this.scan(onDeviceFound);
+                this.scan(onDeviceFound, onError);
                 subscription.remove();
             }
         }, true);
     }
 
-    private scan(onDeviceFound: (device: Device) => void) {
+    private scan(onDeviceFound: (device: Device) => void, onError?: (error: any) => void) {
         console.log('[BleService] Starting main scan (allowDuplicates: true)...');
         this.manager.startDeviceScan(null, { scanMode: ScanMode.LowLatency, allowDuplicates: true }, (error, device) => {
             if (error) {
                 console.error('[BleService] Scan Error:', error);
+                if (onError) onError(error);
                 return;
             }
             if (device) {
@@ -96,6 +97,9 @@ class BleService {
                 if (device.name) {
                     this.lastSeenNames.set(device.name, Date.now());
                 }
+
+
+
                 onDeviceFound(device);
             }
         });
@@ -191,29 +195,84 @@ class BleService {
             return;
         }
 
-        console.log(`[BleService] Scanning for ${devicesToScan.length} devices with notifications enabled.`);
+        console.log(`[BleService] Scanning for ${devicesToScan.length} devices:`);
+        devicesToScan.forEach(([id, settings]) => {
+            console.log(` - "${settings.name || 'Unknown'}" (ID: ${id})`);
+        });
 
         // Collect Service UUIDs for targeted scanning (Required for iOS Background)
         const serviceUUIDs = new Set<string>();
-
-        // Add common services that most devices have, just in case
-        serviceUUIDs.add('180F'); // Battery Service
-        serviceUUIDs.add('180A'); // Device Information
-        serviceUUIDs.add('1800'); // Generic Access
-        serviceUUIDs.add('1801'); // Generic Attribute
-        serviceUUIDs.add('1812'); // HID (Keyboards, Mice)
+        let hasSpecificUUIDs = false;
 
         // Add specific UUIDs from tracked devices
         devicesToScan.forEach(([_, settings]) => {
             if (settings.serviceUUIDs && settings.serviceUUIDs.length > 0) {
                 settings.serviceUUIDs.forEach(uuid => serviceUUIDs.add(uuid));
+                hasSpecificUUIDs = true;
             }
         });
 
+        // Only add common services if we DON'T have specific ones, 
+        // or if we want to be safe (but user suggests it might hurt).
+        // Let's try to be strict: If we have specific UUIDs, use ONLY those.
+        // If we have a device with NO UUIDs, we might need the common ones for that device.
+
+        const devicesWithoutUUIDs = devicesToScan.filter(([_, s]) => !s.serviceUUIDs || s.serviceUUIDs.length === 0);
+
+        if (devicesWithoutUUIDs.length > 0) {
+            console.log(`[BleService] ${devicesWithoutUUIDs.length} devices have no specific UUIDs. Adding common ones.`);
+            serviceUUIDs.add('180F'); // Battery Service
+            serviceUUIDs.add('180A'); // Device Information
+            serviceUUIDs.add('1800'); // Generic Access
+            serviceUUIDs.add('1801'); // Generic Attribute
+            serviceUUIDs.add('1812'); // HID (Keyboards, Mice)
+        }
+
         const scanUUIDs = Array.from(serviceUUIDs);
-        console.log(`[BleService] Targeted Scan UUIDs: ${scanUUIDs.join(', ')}`);
+        console.log(`[BleService] Using Service UUIDs for filter: ${scanUUIDs.join(', ')}`);
 
         // 2. Start a short scan
+        const foundDeviceIds = new Set<string>();
+
+        // CRITICAL FIX: Check for System Connected devices first!
+        // Devices like headphones (Audeze) stop advertising when connected.
+        // We must check for them using ALL possible UUIDs they might have (Battery, HID, etc.)
+        // even if we are only scanning for a specific one.
+        try {
+            const commonUUIDs = ['180F', '180A', '1800', '1801', '1812'];
+            const checkUUIDs = [...scanUUIDs, ...commonUUIDs];
+
+            const connectedSystemDevices = await this.manager.connectedDevices(checkUUIDs);
+            connectedSystemDevices.forEach(async (device) => {
+                if (trackedDevices.has(device.id)) {
+                    console.log(`[BleService] Device "${device.name}" (${device.id}) is SYSTEM CONNECTED. Marking as found.`);
+                    foundDeviceIds.add(device.id);
+
+                    // Check if we should notify on found
+                    const settings = trackedDevices.get(device.id);
+                    if (settings && settings.notifyOnFound) {
+                        const lastNotifiedKey = `last_notified_found_${device.id}`;
+                        const lastNotified = await AsyncStorage.getItem(lastNotifiedKey);
+                        const now = Date.now();
+
+                        // 5 minute cooldown to prevent spam
+                        if (!lastNotified || (now - parseInt(lastNotified) > 5 * 60 * 1000)) {
+                            console.log(`[BleService] Sending FOUND notification for "${settings.name || device.name || 'Device'}" (${device.id})`);
+                            notificationService.sendNotification(
+                                'Device Found!',
+                                `${settings.name || device.name || device.localName || 'Device'} is nearby.`
+                            );
+                            await AsyncStorage.setItem(lastNotifiedKey, now.toString());
+                        }
+                    }
+                    // RESET Lost Notification Flag since it's found
+                    await AsyncStorage.removeItem(`has_notified_lost_${device.id}`);
+                }
+            });
+        } catch (e) {
+            console.warn('[BleService] Failed to check connected devices:', e);
+        }
+
         this.manager.startDeviceScan(
             Platform.OS === 'ios' ? scanUUIDs : null, // Target specific services on iOS
             { scanMode: ScanMode.LowLatency, allowDuplicates: true },
@@ -228,7 +287,7 @@ class BleService {
 
                     // Only care if we are tracking this device
                     if (settings) {
-                        // console.log(`[BleService] Discovered tracked device: ${device.id} (${device.name})`);
+                        foundDeviceIds.add(device.id);
 
                         // Check if we should notify on found
                         if (settings.notifyOnFound) {
@@ -238,25 +297,54 @@ class BleService {
 
                             // 5 minute cooldown to prevent spam
                             if (!lastNotified || (now - parseInt(lastNotified) > 5 * 60 * 1000)) {
-                                console.log(`[BleService] Sending FOUND notification for ${device.id}`);
+                                console.log(`[BleService] Sending FOUND notification for "${settings.name || device.name || 'Device'}" (${device.id})`);
                                 notificationService.sendNotification(
                                     'Device Found!',
-                                    `${device.name || device.localName || 'Device'} is nearby.`
+                                    `${settings.name || device.name || device.localName || 'Device'} is nearby.`
                                 );
                                 await AsyncStorage.setItem(lastNotifiedKey, now.toString());
-                            } else {
-                                // console.log(`[BleService] Found ${device.id} but notification is on cooldown.`);
                             }
                         }
+                        // RESET Lost Notification Flag since it's found
+                        await AsyncStorage.removeItem(`has_notified_lost_${device.id}`);
                     }
                 }
             }
         );
 
-        // 3. Stop scan after 10 seconds
-        setTimeout(() => {
-            console.log('[BleService] Stopping background scan.');
+        // 3. Stop scan after 10 seconds and check for LOST devices
+        setTimeout(async () => {
+            console.log(`[BleService] Stopping background scan. Found ${foundDeviceIds.size} devices.`);
             this.manager.stopDeviceScan();
+
+            // Check for lost devices
+            // We iterate over devices that we WANTED to scan (devicesToScan)
+            for (const [id, settings] of devicesToScan) {
+                if (foundDeviceIds.has(id)) {
+                    // Device found
+                    // console.log(`[BleService] Device "${settings.name}" was found.`);
+                } else {
+                    // Device NOT found
+                    if (settings.notifyOnLost) {
+                        const notifiedKey = `has_notified_lost_${id}`;
+                        const hasNotified = await AsyncStorage.getItem(notifiedKey);
+                        const deviceName = settings.name || 'Unknown Device';
+
+                        if (!hasNotified) {
+                            console.log(`[BleService] "${deviceName}" (${id}) missing. Sending LOST notification.`);
+                            notificationService.sendNotification(
+                                'Device Lost!',
+                                `${deviceName} has gone out of range.`
+                            );
+                            await AsyncStorage.setItem(notifiedKey, 'true');
+                        } else {
+                            console.log(`[BleService] "${deviceName}" missing, but already notified.`);
+                        }
+                    } else {
+                        console.log(`[BleService] "${settings.name}" missing, but notifyOnLost is disabled.`);
+                    }
+                }
+            }
         }, 10000);
     }
 
@@ -314,6 +402,77 @@ class BleService {
         } catch (e) {
             // console.warn(`Failed to read RSSI for ${deviceId}`, e);
             return null;
+        }
+    }
+
+    /**
+     * Connects to a device, discovers all services, and returns their UUIDs.
+     * This is useful for devices that don't advertise their Service UUIDs in the scan packet.
+     */
+    async discoverServices(deviceId: string): Promise<string[]> {
+        console.log(`[BleService] Discovering services for ${deviceId}...`);
+        try {
+            // 1. Connect
+            const device = await this.manager.connectToDevice(deviceId, { autoConnect: false, timeout: 5000 });
+
+            // 2. Discover Services
+            await device.discoverAllServicesAndCharacteristics();
+            const services = await device.services();
+
+            // 3. Extract UUIDs
+            const uuids = services.map(s => s.uuid);
+            console.log(`[BleService] Discovered ${uuids.length} services:`, uuids);
+
+            // 4. Disconnect (we don't need to stay connected)
+            await this.manager.cancelDeviceConnection(deviceId);
+
+            return uuids;
+        } catch (e) {
+            console.warn(`[BleService] Failed to discover services for ${deviceId}`, e);
+            // Try to disconnect just in case
+            try { await this.manager.cancelDeviceConnection(deviceId); } catch (_) { }
+            return [];
+        }
+    }
+    /**
+     * Connection Leash Strategy:
+     * Maintains a persistent connection to the device.
+     * Triggers callback when disconnected.
+     */
+    async connectToTrackedDevice(deviceId: string, onDisconnected: () => void) {
+        console.log(`[BleService] Connecting to tracked device ${deviceId} for monitoring...`);
+        try {
+            // Check if already connected
+            const isConnected = await this.manager.isDeviceConnected(deviceId);
+            if (isConnected) {
+                console.log(`[BleService] Already connected to ${deviceId}. Registering listener.`);
+                this.registerDisconnectionListener(deviceId, onDisconnected);
+                return;
+            }
+
+            // Connect
+            await this.manager.connectToDevice(deviceId, { autoConnect: true }); // autoConnect: true helps with reconnection
+            console.log(`[BleService] Connected to ${deviceId}. Registering listener.`);
+            this.registerDisconnectionListener(deviceId, onDisconnected);
+
+        } catch (e) {
+            console.warn(`[BleService] Failed to connect to ${deviceId} for monitoring`, e);
+        }
+    }
+
+    private registerDisconnectionListener(deviceId: string, callback: () => void) {
+        this.manager.onDeviceDisconnected(deviceId, (error, device) => {
+            console.log(`[BleService] Device ${deviceId} disconnected! Error:`, error);
+            callback();
+        });
+    }
+
+    async disconnectTrackedDevice(deviceId: string) {
+        console.log(`[BleService] Disconnecting from tracked device ${deviceId}...`);
+        try {
+            await this.manager.cancelDeviceConnection(deviceId);
+        } catch (e) {
+            console.warn(`[BleService] Failed to disconnect ${deviceId}`, e);
         }
     }
 }

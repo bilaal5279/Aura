@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Linking from 'expo-linking';
+import * as StoreReview from 'expo-store-review';
 import React, { createContext, useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { Device } from 'react-native-ble-plx';
@@ -13,14 +15,15 @@ export interface ScannedDevice {
     device: Device;
     rssi: number | null;
     lastSeen: number;
-    isBonded?: boolean; // Added to track bonded status
-    customName?: string; // Added for identified devices (e.g. Apple)
+    isBonded?: boolean;
+    customName?: string;
 }
 
 export interface DeviceSettings {
     notifyOnLost: boolean;
     notifyOnFound: boolean;
     serviceUUIDs?: string[];
+    name?: string;
 }
 
 interface RadarContextType {
@@ -37,12 +40,22 @@ interface RadarContextType {
     updateDistanceUnit: (unit: 'meters' | 'feet' | 'auto') => void;
     backgroundTrackingEnabled: boolean;
     toggleBackgroundTracking: (enabled: boolean) => void;
-    // RevenueCat
     isPro: boolean;
     currentOffering: PurchasesOffering | null;
     purchasePackage: (pack: PurchasesPackage) => Promise<void>;
     restorePro: () => Promise<void>;
     showPaywall: () => Promise<void>;
+    hasSeenOnboarding: boolean;
+    completeOnboarding: () => Promise<void>;
+    resetOnboarding: () => Promise<void>;
+    appLaunchCount: number;
+    hasRated: boolean;
+    rateApp: () => Promise<void>;
+    resetRating: () => Promise<void>;
+    triggerRating: () => Promise<void>;
+    freeScanUsed: boolean;
+    useFreeScan: () => Promise<void>;
+    resetFreeScan: () => Promise<void>;
 }
 
 const RadarContext = createContext<RadarContextType>({
@@ -59,42 +72,134 @@ const RadarContext = createContext<RadarContextType>({
     updateDistanceUnit: () => { },
     backgroundTrackingEnabled: true,
     toggleBackgroundTracking: () => { },
-    // RevenueCat
     isPro: false,
     currentOffering: null,
     purchasePackage: async () => { },
     restorePro: async () => { },
     showPaywall: async () => { },
+    hasSeenOnboarding: true,
+    completeOnboarding: async () => { },
+    resetOnboarding: async () => { },
+    appLaunchCount: 0,
+    hasRated: false,
+    rateApp: async () => { },
+    resetRating: async () => { },
+    triggerRating: async () => { },
+    freeScanUsed: false,
+    useFreeScan: async () => { },
+    resetFreeScan: async () => { },
 });
 
 export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [isScanning, setIsScanning] = useState(false);
-    const isScanningRef = useRef(false); // Ref to track scanning state in intervals
-    const lastScanUpdateRef = useRef(Date.now()); // Ref to track last scan activity
-
+    const isScanningRef = useRef(false);
+    const lastScanUpdateRef = useRef(Date.now());
     const [devicesMap, setDevicesMap] = useState<Map<string, ScannedDevice>>(new Map());
-
-    // Use a mutable Map ref as the source of truth to ensure background updates work
-    // even if React state updates are batched or delayed.
     const devicesRef = useRef<Map<string, ScannedDevice>>(new Map());
-
-    // Sync state for UI
-    const syncState = () => {
-        setDevicesMap(new Map(devicesRef.current));
-    };
-
+    const syncState = () => { setDevicesMap(new Map(devicesRef.current)); };
     const smoothers = useRef<Map<string, RssiSmoother>>(new Map()).current;
-
     const [bluetoothState, setBluetoothState] = useState('Unknown');
     const [connectedIds, setConnectedIds] = useState<Set<string>>(new Set());
     const [trackedDevices, setTrackedDevices] = useState<Map<string, DeviceSettings>>(new Map());
     const trackedDevicesRef = useRef(trackedDevices);
-
-    // RevenueCat State
     const [isPro, setIsPro] = useState(false);
     const [currentOffering, setCurrentOffering] = useState<PurchasesOffering | null>(null);
+    const [hasSeenOnboarding, setHasSeenOnboarding] = useState(true);
+    const [isOnboardingLoaded, setIsOnboardingLoaded] = useState(false);
 
-    // Initialize RevenueCat
+    useEffect(() => {
+        const loadOnboarding = async () => {
+            try {
+                const value = await AsyncStorage.getItem('hasSeenOnboarding');
+                if (value === null) setHasSeenOnboarding(false);
+                else setHasSeenOnboarding(JSON.parse(value));
+            } catch (e) { console.warn('Failed to load onboarding status', e); }
+            finally { setIsOnboardingLoaded(true); }
+        };
+        loadOnboarding();
+    }, []);
+
+    const [appLaunchCount, setAppLaunchCount] = useState(0);
+    const [hasRated, setHasRated] = useState(false);
+    const [freeScanUsed, setFreeScanUsed] = useState(false);
+
+    useEffect(() => {
+        const loadRatingState = async () => {
+            try {
+                const count = await AsyncStorage.getItem('appLaunchCount');
+                const rated = await AsyncStorage.getItem('hasRated');
+                const scanUsed = await AsyncStorage.getItem('freeScanUsed');
+                const currentCount = count ? parseInt(count) : 0;
+                setAppLaunchCount(currentCount + 1);
+                await AsyncStorage.setItem('appLaunchCount', (currentCount + 1).toString());
+                if (rated) setHasRated(JSON.parse(rated));
+                if (scanUsed) setFreeScanUsed(JSON.parse(scanUsed));
+            } catch (e) { console.warn('Failed to load rating state', e); }
+        };
+        loadRatingState();
+    }, []);
+
+    const rateApp = async () => {
+        setHasRated(true);
+        await AsyncStorage.setItem('hasRated', 'true');
+
+        try {
+            if (await StoreReview.hasAction()) {
+                await StoreReview.requestReview();
+            } else {
+                // Fallback to store links
+                if (Platform.OS === 'ios') {
+                    Linking.openURL('https://apps.apple.com/app/id123456789'); // Replace with actual App ID
+                } else {
+                    Linking.openURL('market://details?id=com.findmydevice.app'); // Replace with actual Package Name
+                }
+            }
+        } catch (error) {
+            console.warn('Error requesting review:', error);
+            // Fallback if native review fails
+            if (Platform.OS === 'ios') {
+                Linking.openURL('https://apps.apple.com/app/id123456789');
+            } else {
+                Linking.openURL('market://details?id=com.findmydevice.app');
+            }
+        }
+    };
+
+    const resetRating = async () => {
+        setAppLaunchCount(0);
+        setHasRated(false);
+        await AsyncStorage.setItem('appLaunchCount', '0');
+        await AsyncStorage.removeItem('hasRated');
+    };
+
+    const triggerRating = async () => {
+        setAppLaunchCount(3);
+        setHasRated(false);
+        await AsyncStorage.setItem('appLaunchCount', '3');
+        await AsyncStorage.removeItem('hasRated');
+    };
+
+    const useFreeScan = async () => {
+        setFreeScanUsed(true);
+        await AsyncStorage.setItem('freeScanUsed', 'true');
+    };
+
+    const resetFreeScan = async () => {
+        setFreeScanUsed(false);
+        await AsyncStorage.removeItem('freeScanUsed');
+    };
+
+    const completeOnboarding = async () => {
+        setHasSeenOnboarding(true);
+        await AsyncStorage.setItem('hasSeenOnboarding', 'true');
+    };
+
+    const resetOnboarding = async () => {
+        setHasSeenOnboarding(false);
+        await AsyncStorage.removeItem('hasSeenOnboarding');
+    };
+
+    // RevenueCat
     useEffect(() => {
         const initRevenueCat = async () => {
             if (Platform.OS === 'android') {
@@ -102,43 +207,22 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             } else {
                 Purchases.configure({ apiKey: 'test_ARCJxvSrEaJThOsDVOnaBWAuWmp' });
             }
-
-            // Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
-
             try {
                 const customerInfo = await Purchases.getCustomerInfo();
                 updateProStatus(customerInfo);
-
                 const offerings = await Purchases.getOfferings();
-                if (offerings.current !== null) {
-                    setCurrentOffering(offerings.current);
-                }
-            } catch (e) {
-                console.warn('RevenueCat Init Error:', e);
-            }
+                if (offerings.current !== null) setCurrentOffering(offerings.current);
+            } catch (e) { console.warn('RevenueCat Init Error:', e); }
         };
-
         initRevenueCat();
-
-        const listener = (info: CustomerInfo) => {
-            updateProStatus(info);
-        };
-
+        const listener = (info: CustomerInfo) => updateProStatus(info);
         Purchases.addCustomerInfoUpdateListener(listener);
-
-        return () => {
-            Purchases.removeCustomerInfoUpdateListener(listener);
-        };
+        return () => { Purchases.removeCustomerInfoUpdateListener(listener); };
     }, []);
 
     const updateProStatus = (info: CustomerInfo) => {
         const isProActive = typeof info.entitlements.active['Device Finder Pro'] !== 'undefined';
         setIsPro(isProActive);
-        // If they lose Pro, ensure background tracking is disabled if it was enabled
-        if (!isProActive && backgroundTrackingEnabled) {
-            // We might want to disable it, but for now let's just update the state
-            // toggleBackgroundTracking(false); // Optional: force disable
-        }
     };
 
     const purchasePackage = async (pack: PurchasesPackage) => {
@@ -146,10 +230,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const { customerInfo } = await Purchases.purchasePackage(pack);
             updateProStatus(customerInfo);
         } catch (e: any) {
-            if (!e.userCancelled) {
-                console.warn('Purchase Error:', e);
-                throw e;
-            }
+            if (!e.userCancelled) throw e;
         }
     };
 
@@ -157,53 +238,49 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         try {
             const customerInfo = await Purchases.restorePurchases();
             updateProStatus(customerInfo);
-        } catch (e) {
-            console.warn('Restore Error:', e);
-            throw e;
-        }
+        } catch (e) { throw e; }
     };
 
     const showPaywall = async () => {
         try {
-            // Use the imperative API to present the paywall
-            // This launches a native activity/modal which avoids the ViewModelStoreOwner crash
-            // that happens when embedding the component in a React Native Modal.
-            await RevenueCatUI.presentPaywall({
-                displayCloseButton: true,
-            });
-        } catch (e) {
-            console.warn('Failed to present paywall:', e);
-        }
+            await RevenueCatUI.presentPaywall({ displayCloseButton: true });
+        } catch (e) { console.warn('Failed to present paywall:', e); }
     };
 
-    useEffect(() => {
-        trackedDevicesRef.current = trackedDevices;
-    }, [trackedDevices]);
+    useEffect(() => { trackedDevicesRef.current = trackedDevices; }, [trackedDevices]);
 
-    // Load tracked devices
+    const startMonitoring = (deviceId: string, settings: DeviceSettings) => {
+        const name = settings.name || 'Unknown Device';
+        bleService.connectToTrackedDevice(deviceId, async () => {
+            if (AppState.currentState !== 'active') {
+                if (settings.notifyOnLost) {
+                    const notifiedKey = `has_notified_lost_${deviceId}`;
+                    const hasNotified = await AsyncStorage.getItem(notifiedKey);
+                    if (!hasNotified) {
+                        notificationService.sendNotification('Device Lost!', `${name} has gone out of range.`);
+                        await AsyncStorage.setItem(notifiedKey, 'true');
+                    }
+                }
+            }
+        });
+    };
+
     useEffect(() => {
         const loadTracked = async () => {
             try {
                 const json = await AsyncStorage.getItem('trackedDevices');
                 if (json) {
                     const raw = JSON.parse(json);
-                    // Handle migration from Set (array of strings) to Map
+                    let map = new Map<string, DeviceSettings>();
                     if (Array.isArray(raw)) {
-                        // Old format: just IDs
-                        const map = new Map<string, DeviceSettings>();
-                        raw.forEach((id: string) => {
-                            map.set(id, { notifyOnLost: true, notifyOnFound: false });
-                        });
-                        setTrackedDevices(map);
+                        raw.forEach((id: string) => map.set(id, { notifyOnLost: true, notifyOnFound: false, name: 'Device' }));
                     } else {
-                        // New format: object/map
-                        const map = new Map<string, DeviceSettings>(Object.entries(raw));
-                        setTrackedDevices(map);
+                        map = new Map<string, DeviceSettings>(Object.entries(raw));
                     }
+                    setTrackedDevices(map);
+                    map.forEach((settings, id) => startMonitoring(id, settings));
                 }
-            } catch (e) {
-                console.warn('Failed to load tracked devices', e);
-            }
+            } catch (e) { console.warn('Failed to load tracked devices', e); }
         };
         loadTracked();
     }, []);
@@ -212,39 +289,56 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         try {
             const obj = Object.fromEntries(map);
             await AsyncStorage.setItem('trackedDevices', JSON.stringify(obj));
-        } catch (e) {
-            console.warn('Failed to save tracked devices', e);
-        }
+        } catch (e) { console.warn('Failed to save tracked devices', e); }
     };
 
     const toggleTracking = async (deviceId: string, settings: Partial<DeviceSettings> = { notifyOnLost: true, notifyOnFound: false }) => {
-        console.log(`[Radar] Toggling tracking for ${deviceId}`, settings);
-
-        // Get current device data to extract Service UUIDs
-        const deviceData = devicesRef.current.get(deviceId);
-        const serviceUUIDs = deviceData?.device.serviceUUIDs || [];
-
-        console.log(`[Radar] Capturing UUIDs for ${deviceId}:`, serviceUUIDs);
-
         setTrackedDevices(prev => {
             const next = new Map(prev);
             if (next.has(deviceId)) {
                 next.delete(deviceId);
             } else {
-                next.set(deviceId, {
-                    notifyOnLost: true,
-                    notifyOnFound: false,
-                    serviceUUIDs,
-                    ...settings
-                });
+                const deviceData = devicesRef.current.get(deviceId);
+                const name = deviceData?.customName || deviceData?.device.name || deviceData?.device.localName || 'Unknown Device';
+                const serviceUUIDs = deviceData?.device.serviceUUIDs || [];
+                next.set(deviceId, { notifyOnLost: true, notifyOnFound: false, serviceUUIDs, name, ...settings });
             }
             saveTrackedDevices(next);
             return next;
         });
+
+        (async () => {
+            try {
+                const wasTracking = trackedDevicesRef.current.has(deviceId);
+                if (wasTracking) {
+                    await bleService.disconnectTrackedDevice(deviceId);
+                } else {
+                    const deviceData = devicesRef.current.get(deviceId);
+                    let serviceUUIDs = deviceData?.device.serviceUUIDs || [];
+                    const name = deviceData?.customName || deviceData?.device.name || deviceData?.device.localName || 'Unknown Device';
+
+                    if (!serviceUUIDs || serviceUUIDs.length === 0) {
+                        const discovered = await bleService.discoverServices(deviceId);
+                        if (discovered.length > 0) {
+                            serviceUUIDs = discovered;
+                            setTrackedDevices(prev => {
+                                const next = new Map(prev);
+                                const current = next.get(deviceId);
+                                if (current) {
+                                    next.set(deviceId, { ...current, serviceUUIDs });
+                                    saveTrackedDevices(next);
+                                }
+                                return next;
+                            });
+                        }
+                    }
+                    startMonitoring(deviceId, { notifyOnLost: true, notifyOnFound: false, serviceUUIDs, name, ...settings });
+                }
+            } catch (e) { console.warn(`[Radar] Background toggle error for ${deviceId}`, e); }
+        })();
     };
 
     const updateDeviceSettings = async (deviceId: string, settings: Partial<DeviceSettings>) => {
-        console.log(`[Radar] Updating settings for ${deviceId}`, settings);
         setTrackedDevices(prev => {
             const next = new Map(prev);
             const current = next.get(deviceId);
@@ -258,106 +352,51 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const startScan = async () => {
         if (isScanningRef.current) return;
-
         const state = await bleService.getBluetoothState();
         setBluetoothState(state);
-
-        if (state !== 'PoweredOn') {
-            // Try to enable it if on Android
-            await bleService.enableBluetooth();
-            return;
-        }
-
+        if (state !== 'PoweredOn') { await bleService.enableBluetooth(); return; }
         const hasPerms = await bleService.requestPermissions();
-        // console.log('Permissions granted:', hasPerms);
-        if (!hasPerms) {
-            console.warn('Permissions denied');
-            return;
-        }
+        if (!hasPerms) return;
 
-        // Start background service to keep app alive
-        try {
-            if (backgroundTrackingEnabled) {
-                await bleService.startBackgroundTracking();
-            }
-        } catch (e) {
-            console.warn('Failed to start background tracking', e);
-        }
+        try { if (backgroundTrackingEnabled) await bleService.startBackgroundTracking(); }
+        catch (e) { console.warn('Failed to start background tracking', e); }
 
         setIsScanning(true);
         isScanningRef.current = true;
-        lastScanUpdateRef.current = Date.now(); // Reset watchdog timer
+        lastScanUpdateRef.current = Date.now();
 
-        // console.log('Starting scan...');
-        bleService.startScan((device) => {
-            // console.log('Device found:', device.id, device.name, device.rssi); // Uncomment for verbose logging
-            lastScanUpdateRef.current = Date.now(); // Update watchdog timer
+        bleService.startScan(
+            (device) => {
+                lastScanUpdateRef.current = Date.now();
+                if (device.rssi) {
+                    const now = Date.now();
+                    const currentMap = devicesRef.current;
+                    let smoother = smoothers.get(device.id);
+                    if (!smoother) { smoother = new RssiSmoother(); smoothers.set(device.id, smoother); }
+                    const smoothedRssi = smoother.filter(device.rssi!);
+                    const existing = currentMap.get(device.id);
+                    const isBonded = existing?.isBonded || false;
+                    let customName = existing?.customName;
 
-            if (device.rssi) {
-                const now = Date.now();
-                const currentMap = devicesRef.current;
-
-                let smoother = smoothers.get(device.id);
-                if (!smoother) {
-                    smoother = new RssiSmoother();
-                    smoothers.set(device.id, smoother);
-                }
-
-                const smoothedRssi = smoother.filter(device.rssi!);
-
-                // Check if we already know this device is bonded
-                const existing = currentMap.get(device.id);
-                const isBonded = existing?.isBonded || false;
-                let customName = existing?.customName;
-
-                // Apple Device Identification
-                if (!device.name && !device.localName && device.manufacturerData) {
-                    try {
-                        if (device.manufacturerData.startsWith('TA')) {
-                            customName = 'Apple Device';
-                        }
-                    } catch (e) {
-                        // Ignore decode errors
+                    if (!device.name && !device.localName && device.manufacturerData) {
+                        try { if (device.manufacturerData.startsWith('TA')) customName = 'Apple Device'; } catch (e) { }
                     }
-                }
-
-                // OUI Lookup (Android only usually)
-                if (!customName && device.id.includes(':')) {
-                    const manufacturer = getManufacturerFromMac(device.id);
-                    if (manufacturer) {
-                        if (manufacturer === 'Apple') {
-                            customName = 'iPhone / iPad';
-                        } else {
-                            customName = `${manufacturer} Device`;
-                        }
+                    if (!customName && device.id.includes(':')) {
+                        const manufacturer = getManufacturerFromMac(device.id);
+                        if (manufacturer) customName = manufacturer === 'Apple' ? 'iPhone / iPad' : `${manufacturer} Device`;
                     }
+
+                    currentMap.set(device.id, { device, rssi: smoothedRssi, lastSeen: now, isBonded, customName });
+                    syncState();
+                    AsyncStorage.removeItem(`has_notified_lost_${device.id}`).catch(console.warn);
                 }
-
-                // Check Notify on Found (if it was previously lost/null)
-                if (existing && existing.rssi === null) {
-                    const settings = trackedDevicesRef.current.get(device.id);
-                    if (settings?.notifyOnFound) {
-                        console.log(`[Radar] Triggering Found Notification for ${device.id}`);
-                        notificationService.sendNotification(
-                            'Device Found!',
-                            `${existing.device.name || existing.customName || 'Device'} is back in range.`
-                        );
-                    }
-                }
-
-                // Update the Ref directly
-                currentMap.set(device.id, {
-                    device,
-                    rssi: smoothedRssi,
-                    lastSeen: now,
-                    isBonded,
-                    customName,
-                });
-
-                // Sync to State for UI
-                syncState();
+            },
+            (error) => {
+                setIsScanning(false);
+                isScanningRef.current = false;
+                setTimeout(() => startScan(), 2000);
             }
-        });
+        );
     };
 
     const stopScan = () => {
@@ -368,151 +407,78 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     useEffect(() => {
         const init = async () => {
+            await notificationService.requestPermissions();
             const state = await bleService.getBluetoothState();
             setBluetoothState(state);
-            if (state === 'PoweredOn') {
-                startScan();
-            }
-            // Request notification permissions
-            await notificationService.requestPermissions();
+            if (state === 'PoweredOn') startScan();
         };
         init();
 
-        // Restart scan when app comes to foreground
         const subscription = AppState.addEventListener('change', nextAppState => {
             if (nextAppState === 'active') {
-                console.log('[Radar] App came to foreground, restarting scan...');
                 startScan();
+                trackedDevicesRef.current.forEach((settings, id) => startMonitoring(id, settings));
             } else if (nextAppState === 'background') {
-                console.log('[Radar] App went to background, stopping foreground scan...');
-                stopScan(); // Explicitly stop to save battery/cleanup
+                stopScan();
             }
         });
 
         const bleSubscription = bleService.onStateChange((state) => {
             setBluetoothState(state);
-            if (state === 'PoweredOn') {
-                startScan();
-            } else {
-                stopScan();
-            }
+            if (state === 'PoweredOn') startScan(); else stopScan();
         });
 
         const interval = setInterval(async () => {
             const now = Date.now();
-
-            // Watchdog: Check if scan is healthy
             if (isScanningRef.current) {
-                const timeSinceLastUpdate = now - lastScanUpdateRef.current;
-                // If no updates for 30 seconds (increased from 15), restart scan
-                if (timeSinceLastUpdate > 30000) {
-                    console.log('[Radar] Scan watchdog triggered: restarting scan...');
+                if (now - lastScanUpdateRef.current > 30000) {
                     bleService.stopScan();
-                    // Small delay to ensure clean stop
-                    setTimeout(() => {
-                        // We call the internal logic of startScan without checking isScanningRef to force restart
-                        // But startScan checks isScanningRef. So we need to reset it or bypass.
-                        isScanningRef.current = false;
-                        startScan();
-                    }, 500);
+                    setTimeout(() => { isScanningRef.current = false; startScan(); }, 500);
                 }
             }
 
-            // 1. Get connected devices (BLE)
             const newConnectedIds = new Set<string>();
-
-            // Check connection status for all currently tracked devices
-            // READ FROM REF
             const currentDevices = Array.from(devicesRef.current.values());
-
             for (const d of currentDevices) {
                 const isConnected = await bleService.isDeviceConnected(d.device.id);
-                if (isConnected) {
-                    newConnectedIds.add(d.device.id);
-                }
+                if (isConnected) newConnectedIds.add(d.device.id);
             }
 
-            // 2. Poll RSSI for connected devices to show distance
             const connectedRssiMap = new Map<string, number>();
             for (const id of newConnectedIds) {
                 const rssi = await bleService.readRSSI(id);
-                if (rssi !== null) {
-                    connectedRssiMap.set(id, rssi);
-                }
+                if (rssi !== null) connectedRssiMap.set(id, rssi);
             }
-
             setConnectedIds(newConnectedIds);
 
-            // 3. Update Devices Map (REF)
             const currentMap = devicesRef.current;
             let changed = false;
-
-            // Update RSSI for connected devices if we have it
             for (const [id, rssi] of connectedRssiMap.entries()) {
                 const existing = currentMap.get(id);
                 if (existing && existing.rssi !== rssi) {
-                    // Update Ref
                     currentMap.set(id, { ...existing, rssi, lastSeen: now });
                     changed = true;
-
-                    // Check Notify on Found (if it was previously lost/null)
-                    if (existing.rssi === null && rssi !== null) {
-                        const settings = trackedDevicesRef.current.get(id);
-                        if (settings?.notifyOnFound) {
-                            console.log(`[Radar] Triggering Found Notification for ${id}`);
-                            notificationService.sendNotification(
-                                'Device Found!',
-                                `${existing.device.name || existing.customName || 'Device'} is back in range.`
-                            );
-                        }
-                    }
+                    AsyncStorage.removeItem(`has_notified_lost_${id}`).catch(console.warn);
                 }
             }
 
-            // Cleanup old devices
             for (const [id, data] of currentMap.entries()) {
-                // If connected, keep it alive
-                if (newConnectedIds.has(id)) {
-                    continue;
-                }
-
-                // Only check for "Lost" if the app is active (foreground)
-                // When backgrounded, the OS stops the scan, so we would get false positives.
-                // We let the background task (BleService) handle "Lost" notifications during its periodic scans.
+                if (newConnectedIds.has(id)) continue;
                 if (AppState.currentState === 'active' && now - data.lastSeen > 15000) {
-                    console.log(`[Radar] Device ${id} timed out. Last seen: ${now - data.lastSeen}ms ago.`);
-                    // If it has a name or is Apple, keep it but mark as lost (rssi = null)
                     const hasName = data.device.name || data.device.localName || data.customName;
                     if (hasName) {
                         if (data.rssi !== null) {
-                            console.log(`[Radar] Marking ${id} as LOST.`);
-                            // Update Ref
                             currentMap.set(id, { ...data, rssi: null });
                             changed = true;
-
-                            // Check Notify on Lost
-                            const settings = trackedDevicesRef.current.get(id);
-                            if (settings?.notifyOnLost) {
-                                console.log(`[Radar] Triggering Lost Notification for ${id}`);
-                                notificationService.sendNotification(
-                                    'Device Lost!',
-                                    `${data.device.name || data.customName || 'Device'} has gone out of range.`
-                                );
-                            }
                         }
                     } else {
-                        // Unknown devices still get deleted
-                        // console.log(`[Radar] Removing unknown device ${id}`);
                         currentMap.delete(id);
                         changed = true;
                     }
                 }
             }
-
-            if (changed) {
-                syncState();
-            }
-        }, 2000); // Check every 2 seconds
+            if (changed) syncState();
+        }, 2000);
 
         return () => {
             subscription.remove();
@@ -522,77 +488,45 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }, []);
 
     const devices = Array.from(devicesMap.values()).sort((a, b) => {
-        // 1. Connected devices first
         const aConnected = connectedIds.has(a.device.id);
         const bConnected = connectedIds.has(b.device.id);
         if (aConnected && !bConnected) return -1;
         if (!aConnected && bConnected) return 1;
-
-        // 2. Bonded devices second
         if (a.isBonded && !b.isBonded) return -1;
         if (!a.isBonded && b.isBonded) return 1;
-
-        // 3. Then by Signal Strength (RSSI)
         const rssiA = a.rssi ?? -999;
         const rssiB = b.rssi ?? -999;
         return rssiB - rssiA;
     });
 
     const [distanceUnit, setDistanceUnit] = useState<'meters' | 'feet' | 'auto'>('auto');
-
-    // Load settings
     useEffect(() => {
         const loadSettings = async () => {
-            try {
-                const unit = await AsyncStorage.getItem('distanceUnit');
-                if (unit) setDistanceUnit(unit as any);
-            } catch (e) {
-                console.warn('Failed to load settings', e);
-            }
+            const unit = await AsyncStorage.getItem('distanceUnit');
+            if (unit) setDistanceUnit(unit as any);
         };
         loadSettings();
     }, []);
-
     const updateDistanceUnit = async (unit: 'meters' | 'feet' | 'auto') => {
         setDistanceUnit(unit);
         await AsyncStorage.setItem('distanceUnit', unit);
     };
 
     const [backgroundTrackingEnabled, setBackgroundTrackingEnabled] = useState(true);
-
     useEffect(() => {
         const loadBgSettings = async () => {
-            try {
-                const bg = await AsyncStorage.getItem('backgroundTrackingEnabled');
-                if (bg !== null) {
-                    setBackgroundTrackingEnabled(JSON.parse(bg));
-                }
-            } catch (e) {
-                console.warn('Failed to load bg settings', e);
-            }
+            const bg = await AsyncStorage.getItem('backgroundTrackingEnabled');
+            if (bg !== null) setBackgroundTrackingEnabled(JSON.parse(bg));
         };
         loadBgSettings();
     }, []);
-
     const toggleBackgroundTracking = async (enabled: boolean) => {
         setBackgroundTrackingEnabled(enabled);
         await AsyncStorage.setItem('backgroundTrackingEnabled', JSON.stringify(enabled));
         if (enabled) {
-            if (isScanning) {
-                try {
-                    await bleService.startBackgroundTracking();
-                } catch (e) {
-                    console.warn('Failed to start background tracking', e);
-                }
-            }
+            if (isScanning) await bleService.startBackgroundTracking();
         } else {
-            try {
-                await bleService.stopBackgroundTracking();
-            } catch (e) {
-                console.warn('Failed to stop background tracking', e);
-            }
-
-            // Disable notifications for all tracked devices
+            await bleService.stopBackgroundTracking();
             setTrackedDevices(prev => {
                 const next = new Map(prev);
                 let changed = false;
@@ -602,9 +536,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                         changed = true;
                     }
                 }
-                if (changed) {
-                    saveTrackedDevices(next);
-                }
+                if (changed) saveTrackedDevices(next);
                 return next;
             });
         }
@@ -625,17 +557,26 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             updateDistanceUnit,
             backgroundTrackingEnabled,
             toggleBackgroundTracking,
-            // RevenueCat
             isPro,
             currentOffering,
             purchasePackage,
             restorePro,
-            showPaywall
+            showPaywall,
+            hasSeenOnboarding,
+            completeOnboarding,
+            resetOnboarding,
+            appLaunchCount,
+            hasRated,
+            rateApp,
+            resetRating,
+            triggerRating,
+            freeScanUsed,
+            useFreeScan,
+            resetFreeScan
         }}>
             {children}
         </RadarContext.Provider>
     );
 };
-
 
 export const useRadar = () => React.useContext(RadarContext);

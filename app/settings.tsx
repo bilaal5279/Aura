@@ -10,7 +10,7 @@ import { useRadar } from '../src/hooks/useRadar';
 export default function SettingsScreen() {
     const router = useRouter();
     const { themeMode, setThemeMode, colors, isDark } = useTheme();
-    const { distanceUnit, updateDistanceUnit, backgroundTrackingEnabled, toggleBackgroundTracking, trackedDevices, isPro, showPaywall } = useRadar();
+    const { distanceUnit, updateDistanceUnit, backgroundTrackingEnabled, toggleBackgroundTracking, trackedDevices, isPro, showPaywall, toggleTracking, updateDeviceSettings, resetOnboarding, resetRating, triggerRating, resetFreeScan } = useRadar();
 
     const handleToggleBackground = (enabled: boolean) => {
         if (!enabled && trackedDevices.size > 0) {
@@ -139,6 +139,33 @@ export default function SettingsScreen() {
                     </View>
                 </View>
 
+                {/* Tracked Devices */}
+                <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Tracked Devices</Text>
+                <View style={[styles.section, { backgroundColor: colors.card }]}>
+                    <TouchableOpacity
+                        style={styles.row}
+                        onPress={() => {
+                            if (isPro) {
+                                router.push('/tracked-devices');
+                            } else {
+                                showPaywall();
+                            }
+                        }}
+                    >
+                        <View>
+                            <Text style={[styles.label, { color: colors.text }]}>Manage Tracked Devices</Text>
+                            <Text style={[styles.description, { color: colors.textSecondary }]}>
+                                {isPro ? 'View and manage your tracked items' : 'Upgrade to track devices in background'}
+                            </Text>
+                        </View>
+                        {isPro ? (
+                            <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                        ) : (
+                            <Ionicons name="lock-closed" size={20} color={colors.textSecondary} />
+                        )}
+                    </TouchableOpacity>
+                </View>
+
                 {/* Support */}
                 <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Support</Text>
                 <View style={[styles.section, { backgroundColor: colors.card }]}>
@@ -152,6 +179,68 @@ export default function SettingsScreen() {
                         <Ionicons name="mail-outline" size={20} color={colors.textSecondary} />
                     </TouchableOpacity>
                 </View>
+
+                {/* Debug / Dev Only */}
+                {__DEV__ && (
+                    <>
+                        <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Developer</Text>
+                        <View style={[styles.section, { backgroundColor: colors.card }]}>
+                            <TouchableOpacity
+                                style={styles.row}
+                                onPress={() => {
+                                    Alert.alert(
+                                        'Reset Onboarding',
+                                        'This will reset the onboarding status and restart the app flow.',
+                                        [
+                                            { text: 'Cancel', style: 'cancel' },
+                                            {
+                                                text: 'Reset',
+                                                style: 'destructive',
+                                                onPress: async () => {
+                                                    await resetOnboarding();
+                                                    router.replace('/');
+                                                }
+                                            }
+                                        ]
+                                    );
+                                }}
+                            >
+                                <Text style={[styles.label, { color: COLORS.danger }]}>Reset Onboarding</Text>
+                                <Ionicons name="refresh-circle-outline" size={20} color={COLORS.danger} />
+                            </TouchableOpacity>
+
+                            <View style={[styles.separator, { backgroundColor: colors.border }]} />
+
+                            <TouchableOpacity style={styles.row} onPress={async () => {
+                                await resetRating();
+                                Alert.alert('Success', 'Rating status reset. Launch count is 0.');
+                            }}>
+                                <Text style={[styles.label, { color: COLORS.danger }]}>Reset Rating Status</Text>
+                                <Ionicons name="refresh-circle-outline" size={20} color={COLORS.danger} />
+                            </TouchableOpacity>
+
+                            <View style={[styles.separator, { backgroundColor: colors.border }]} />
+
+                            <TouchableOpacity style={styles.row} onPress={async () => {
+                                await triggerRating();
+                                Alert.alert('Success', 'Rating trigger set. Restart app or navigate to home to see modal.');
+                            }}>
+                                <Text style={[styles.label, { color: COLORS.primary }]}>Trigger Rating Modal</Text>
+                                <Ionicons name="star" size={20} color={COLORS.primary} />
+                            </TouchableOpacity>
+
+                            <View style={[styles.separator, { backgroundColor: colors.border }]} />
+
+                            <TouchableOpacity style={styles.row} onPress={async () => {
+                                await resetFreeScan();
+                                Alert.alert('Success', 'Free scan limit reset.');
+                            }}>
+                                <Text style={[styles.label, { color: COLORS.danger }]}>Reset Free Scan</Text>
+                                <Ionicons name="refresh-circle-outline" size={20} color={COLORS.danger} />
+                            </TouchableOpacity>
+                        </View>
+                    </>
+                )}
 
                 <Text style={[styles.version, { color: colors.textSecondary }]}>Version 1.0.0</Text>
             </ScrollView>

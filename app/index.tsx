@@ -87,9 +87,20 @@ const DeviceItem = ({ item, isPro, onPress }: { item: ScannedDevice, isPro: bool
 export default function Dashboard() {
     const router = useRouter();
     const { colors, isDark } = useTheme();
-    const { isScanning, devices, bluetoothState, connectedIds, trackedDevices, toggleTracking, updateDeviceSettings, backgroundTrackingEnabled, isPro, showPaywall } = useRadar();
+    const { isScanning, devices, bluetoothState, connectedIds, trackedDevices, toggleTracking, updateDeviceSettings, backgroundTrackingEnabled, isPro, showPaywall, hasSeenOnboarding } = useRadar();
     const [selectedDevice, setSelectedDevice] = useState<ScannedDevice | null>(null);
     const [showNotifyModal, setShowNotifyModal] = useState(false);
+
+    // Redirect to Onboarding if not seen
+    React.useEffect(() => {
+        if (!hasSeenOnboarding) {
+            // Small delay to ensure navigation is ready
+            const timer = setTimeout(() => {
+                router.replace('/onboarding');
+            }, 100);
+            return () => clearTimeout(timer);
+        }
+    }, [hasSeenOnboarding]);
 
     // Stable sort order for unknown devices
     const [stableUnknownIds, setStableUnknownIds] = React.useState<string[]>([]);

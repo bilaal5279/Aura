@@ -10,6 +10,7 @@ const LOCATION_TASK_NAME = 'background-location-task';
 
 // Define the background task for iOS
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
+    console.log('[BackgroundTracker] Task Triggered!');
     if (error) {
         console.error('Background location task error:', error);
         return;
@@ -61,7 +62,7 @@ class BackgroundTracker {
             if (status === 'granted') {
                 await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
                     accuracy: Location.Accuracy.Balanced,
-                    distanceInterval: 1, // Update every 1 meter (Extreme sensitivity for testing)
+                    distanceInterval: 15, // Update every 15 meters (Balanced for leaving house)
                     deferredUpdatesInterval: 5000, // Minimum 5 seconds between updates
                     pausesUpdatesAutomatically: false,
                     showsBackgroundLocationIndicator: true, // Required for background execution
