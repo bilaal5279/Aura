@@ -4,7 +4,7 @@ import { Audio } from 'expo-av';
 
 import * as Haptics from 'expo-haptics';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Dimensions, Modal, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { Easing, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import { Confetti } from '../../src/components/Confetti';
@@ -352,6 +352,19 @@ export default function DeviceDetailScreen() {
                             <Switch
                                 value={deviceSettings?.notifyOnLost || false}
                                 onValueChange={() => handleToggleSetting('notifyOnLost')}
+                                trackColor={{ false: '#333', true: COLORS.primary }}
+                                thumbColor="#FFF"
+                            />
+                        </View>
+
+                        <View style={[styles.settingRow, { backgroundColor: colors.card }]}>
+                            <View>
+                                <Text style={[styles.settingLabel, { color: colors.text }]}>Notify on Found</Text>
+                                <Text style={[styles.settingDesc, { color: colors.textSecondary }]}>Alert when device is detected nearby</Text>
+                            </View>
+                            <Switch
+                                value={deviceSettings?.notifyOnFound || false}
+                                onValueChange={() => handleToggleSetting('notifyOnFound')}
                                 trackColor={{ false: '#333', true: COLORS.primary }}
                                 thumbColor="#FFF"
                             />

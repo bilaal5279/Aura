@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 
 Notifications.setNotificationHandler({
     handleNotification: async () => ({
-        shouldShowAlert: true,
+        shouldShowAlert: true, // Keep for backward compatibility if type requires it, but rely on banner/list
         shouldPlaySound: true,
         shouldSetBadge: false,
         shouldShowBanner: true,

@@ -1,5 +1,8 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Linking, PermissionsAndroid, Platform } from 'react-native';
 import { BleManager, Device, ScanMode } from 'react-native-ble-plx';
+import { DeviceSettings } from '../../context/RadarContext';
+import { notificationService } from '../notifications/NotificationService';
 import { backgroundTracker } from '../tracking/BackgroundTracker';
 
 class BleService {
@@ -150,6 +153,89 @@ class BleService {
     async stopBackgroundTracking() {
         console.log('Stopping background tracking...');
         await backgroundTracker.stop();
+    }
+
+    async performBackgroundScan() {
+        console.log('[BleService] Performing background scan...');
+
+        // 1. Get tracked devices from storage (since we are in background/headless)
+        let trackedDevices = new Map<string, DeviceSettings>();
+        try {
+            const json = await AsyncStorage.getItem('trackedDevices');
+            if (json) {
+                const raw = JSON.parse(json);
+                if (Array.isArray(raw)) {
+                    // Old format
+                } else {
+                    trackedDevices = new Map<string, DeviceSettings>(Object.entries(raw));
+                }
+            }
+        } catch (e) {
+            console.warn('[BleService] Failed to load tracked devices in background', e);
+            return;
+        }
+
+        if (trackedDevices.size === 0) {
+            console.log('[BleService] No tracked devices, skipping scan.');
+            return;
+        }
+
+        // Filter for devices that actually need notifications
+        const devicesToScan = Array.from(trackedDevices.entries())
+            .filter(([_, settings]) => settings.notifyOnFound || settings.notifyOnLost);
+
+        if (devicesToScan.length === 0) {
+            console.log('[BleService] No devices with notifications enabled, skipping scan.');
+            return;
+        }
+
+        console.log(`[BleService] Scanning for ${devicesToScan.length} devices with notifications enabled.`);
+
+        // 2. Start a short scan
+        this.manager.startDeviceScan(
+            null, // Scan for all, or use specific service UUIDs if needed for iOS: ['180F', '180A', ...]
+            { scanMode: ScanMode.LowLatency, allowDuplicates: true },
+            async (error, device) => {
+                if (error) {
+                    console.warn('[BleService] Background Scan Error:', error);
+                    return;
+                }
+
+                if (device && device.id) {
+                    const settings = trackedDevices.get(device.id);
+
+                    // Only care if we are tracking this device
+                    if (settings) {
+                        // console.log(`[BleService] Discovered tracked device: ${device.id} (${device.name})`);
+
+                        // Check if we should notify on found
+                        if (settings.notifyOnFound) {
+                            const lastNotifiedKey = `last_notified_found_${device.id}`;
+                            const lastNotified = await AsyncStorage.getItem(lastNotifiedKey);
+                            const now = Date.now();
+
+                            // 5 minute cooldown to prevent spam
+                            if (!lastNotified || (now - parseInt(lastNotified) > 5 * 60 * 1000)) {
+                                console.log(`[BleService] Sending FOUND notification for ${device.id}`);
+                                notificationService.sendNotification(
+                                    'Device Found!',
+                                    `${device.name || device.localName || 'Device'} is nearby.`
+                                );
+                                await AsyncStorage.setItem(lastNotifiedKey, now.toString());
+                            } else {
+                                // console.log(`[BleService] Found ${device.id} but notification is on cooldown.`);
+                            }
+                        }
+                    }
+                }
+            }
+        );
+
+        // 3. Stop scan after 10 seconds
+        setTimeout(() => {
+            console.log('[BleService] Stopping background scan.');
+            this.manager.stopDeviceScan();
+        }, 10000);
     }
 
     onStateChange(listener: (state: string) => void) {

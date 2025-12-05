@@ -101,7 +101,7 @@ export default function Dashboard() {
 
         const updateOrder = () => {
             const currentUnknown = devicesRef.current.filter((d: ScannedDevice) => !d.isBonded && !d.device.name && !d.device.localName);
-            setStableUnknownIds(currentUnknown.map(d => d.device.id));
+            setStableUnknownIds(currentUnknown.map((d: ScannedDevice) => d.device.id));
         };
 
         // Initial update
@@ -124,8 +124,8 @@ export default function Dashboard() {
 
     const unknownSectionData = React.useMemo(() => {
         return stableUnknownIds
-            .map(id => devices.find(d => d.device.id === id))
-            .filter((d): d is ScannedDevice => !!d);
+            .map(id => devices.find((d: ScannedDevice) => d.device.id === id))
+            .filter((d: ScannedDevice | undefined): d is ScannedDevice => !!d);
     }, [devices, stableUnknownIds]);
 
     const handleDevicePress = (device: ScannedDevice) => {

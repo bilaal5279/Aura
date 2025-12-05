@@ -153,7 +153,7 @@ const TimeMachineMap: React.FC<MapScreenProps> = ({ history }) => {
                 showsUserLocation
                 showsMyLocationButton
             >
-                {filteredHistory.map((entry) => (
+                {filteredHistory.map((entry: LocationHistory) => (
                     <Marker
                         key={entry.id}
                         coordinate={{ latitude: entry.latitude, longitude: entry.longitude }}
