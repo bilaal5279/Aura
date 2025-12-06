@@ -6,6 +6,7 @@ import { AppState, Platform } from 'react-native';
 import { Device } from 'react-native-ble-plx';
 import Purchases, { CustomerInfo, PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import RevenueCatUI from 'react-native-purchases-ui';
+import { LocationDisclosureModal } from '../components/LocationDisclosureModal';
 import { bleService } from '../services/ble/BleService';
 import { notificationService } from '../services/notifications/NotificationService';
 import { RssiSmoother } from '../services/tracking/KalmanFilter';
@@ -56,6 +57,7 @@ interface RadarContextType {
     freeScanUsed: boolean;
     useFreeScan: () => Promise<void>;
     resetFreeScan: () => Promise<void>;
+    resetLocationDisclosure: () => Promise<void>;
 }
 
 const RadarContext = createContext<RadarContextType>({
@@ -88,9 +90,12 @@ const RadarContext = createContext<RadarContextType>({
     freeScanUsed: false,
     useFreeScan: async () => { },
     resetFreeScan: async () => { },
+    resetLocationDisclosure: async () => { },
 });
 
 export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const [showLocationDisclosure, setShowLocationDisclosure] = useState(false);
+    const [pendingBackgroundToggle, setPendingBackgroundToggle] = useState<boolean | null>(null);
     const [isScanning, setIsScanning] = useState(false);
     const isScanningRef = useRef(false);
     const lastScanUpdateRef = useRef(Date.now());
@@ -453,6 +458,34 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             const currentMap = devicesRef.current;
             let changed = false;
+
+            // CRITICAL FIX: Ensure connected devices stay in the list (refresh lastSeen)
+            for (const id of newConnectedIds) {
+                const existing = currentMap.get(id);
+                if (existing) {
+                    // Update lastSeen so it isn't removed by the cleanup loop
+                    currentMap.set(id, { ...existing, lastSeen: now });
+                    changed = true;
+                    // Also clear any lost notification flag if we see it connected
+                    AsyncStorage.removeItem(`has_notified_lost_${id}`).catch(console.warn);
+                } else {
+                    // If it's connected but NOT in the list, we should add it!
+                    // This happens if we connect in background and then open app.
+                    const tracked = trackedDevicesRef.current.get(id);
+                    if (tracked) {
+                        // We have a tracked device that is connected but missing from list.
+                        // create a placeholder device
+                        currentMap.set(id, {
+                            device: { id, name: tracked.name, localName: tracked.name, rssi: connectedRssiMap.get(id) || -50 } as any, // Mock device object path
+                            rssi: connectedRssiMap.get(id) || -50,
+                            lastSeen: now,
+                            isBonded: true,
+                            customName: tracked.name
+                        });
+                        changed = true;
+                    }
+                }
+            }
             for (const [id, rssi] of connectedRssiMap.entries()) {
                 const existing = currentMap.get(id);
                 if (existing && existing.rssi !== rssi) {
@@ -542,6 +575,37 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
     };
 
+    const handleDisclosureAccept = async () => {
+        setShowLocationDisclosure(false);
+        // Request the actual permission
+        const granted = await bleService.requestBackgroundLocationPermission();
+        if (granted) {
+            // Proceed with enabling logic
+            setBackgroundTrackingEnabled(true);
+            await AsyncStorage.setItem('backgroundTrackingEnabled', JSON.stringify(true));
+            if (isScanning) await bleService.startBackgroundTracking();
+        } else {
+            console.log('User accepted disclosure but denied system permission');
+        }
+    };
+
+    const handleDisclosureDecline = () => {
+        setShowLocationDisclosure(false);
+        setPendingBackgroundToggle(null); // Clear intent
+    };
+
+    const safeToggleBackgroundTracking = async (enabled: boolean) => {
+        if (enabled) {
+            setShowLocationDisclosure(true);
+        } else {
+            toggleBackgroundTracking(false);
+        }
+    };
+
+    const resetLocationDisclosure = async () => {
+        setShowLocationDisclosure(true);
+    };
+
     return (
         <RadarContext.Provider value={{
             isScanning,
@@ -556,7 +620,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             distanceUnit,
             updateDistanceUnit,
             backgroundTrackingEnabled,
-            toggleBackgroundTracking,
+            toggleBackgroundTracking: safeToggleBackgroundTracking,
             isPro,
             currentOffering,
             purchasePackage,
@@ -572,9 +636,15 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             triggerRating,
             freeScanUsed,
             useFreeScan,
-            resetFreeScan
+            resetFreeScan,
+            resetLocationDisclosure
         }}>
             {children}
+            <LocationDisclosureModal
+                visible={showLocationDisclosure}
+                onAccept={handleDisclosureAccept}
+                onDecline={handleDisclosureDecline}
+            />
         </RadarContext.Provider>
     );
 };

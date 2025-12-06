@@ -29,11 +29,11 @@
           "fetch",
           "processing"
         ],
-        "NSBluetoothAlwaysUsageDescription": "Aura needs Bluetooth to track your devices.",
-        "NSBluetoothPeripheralUsageDescription": "Aura needs Bluetooth to track your devices.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "Aura needs location to map where you lost your devices.",
-        "NSLocationAlwaysUsageDescription": "Aura needs location to map where you lost your devices.",
-        "NSLocationWhenInUseUsageDescription": "Aura needs location to map where you lost your devices.",
+        "NSBluetoothAlwaysUsageDescription": "Find my device needs Bluetooth to track your devices.",
+        "NSBluetoothPeripheralUsageDescription": "Find my device needs Bluetooth to track your devices.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Find my device needs location to map where you lost your devices.",
+        "NSLocationAlwaysUsageDescription": "Find my device needs location to map where you lost your devices.",
+        "NSLocationWhenInUseUsageDescription": "Find my device needs location to map where you lost your devices.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -44,7 +44,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.aura.tracker",
+      "package": "com.digitalsprout.findmydevice",
       "permissions": [
         "android.permission.BLUETOOTH",
         "android.permission.BLUETOOTH_ADMIN",
@@ -94,14 +94,14 @@
             "peripheral",
             "background"
           ],
-          "bluetoothAlwaysPermission": "Allow Aura to scan for devices even when the app is in the background."
+          "bluetoothAlwaysPermission": "Allow Find my device to scan for devices even when the app is in the background."
         }
       ],
       [
         "with-rn-bluetooth-classic",
         {
-          "peripheralUsageDescription": "Allow myDevice to check bluetooth peripheral info",
-          "alwaysUsageDescription": "Allow myDevice to always use bluetooth info",
+          "peripheralUsageDescription": "Allow Find my device to check bluetooth peripheral info",
+          "alwaysUsageDescription": "Allow Find my device to always use bluetooth info",
           "protocols": [
             "com.myCompany.p1",
             "com.myCompany.p2"

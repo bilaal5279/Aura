@@ -10,7 +10,7 @@ import { useRadar } from '../src/hooks/useRadar';
 export default function SettingsScreen() {
     const router = useRouter();
     const { themeMode, setThemeMode, colors, isDark } = useTheme();
-    const { distanceUnit, updateDistanceUnit, backgroundTrackingEnabled, toggleBackgroundTracking, trackedDevices, isPro, showPaywall, toggleTracking, updateDeviceSettings, resetOnboarding, resetRating, triggerRating, resetFreeScan } = useRadar();
+    const { distanceUnit, updateDistanceUnit, backgroundTrackingEnabled, toggleBackgroundTracking, trackedDevices, isPro, showPaywall, toggleTracking, updateDeviceSettings, resetOnboarding, resetRating, triggerRating, resetFreeScan, resetLocationDisclosure } = useRadar();
 
     const handleToggleBackground = (enabled: boolean) => {
         if (!enabled && trackedDevices.size > 0) {
@@ -231,12 +231,27 @@ export default function SettingsScreen() {
 
                             <View style={[styles.separator, { backgroundColor: colors.border }]} />
 
+                            <View style={[styles.separator, { backgroundColor: colors.border }]} />
+
                             <TouchableOpacity style={styles.row} onPress={async () => {
                                 await resetFreeScan();
                                 Alert.alert('Success', 'Free scan limit reset.');
                             }}>
                                 <Text style={[styles.label, { color: COLORS.danger }]}>Reset Free Scan</Text>
                                 <Ionicons name="refresh-circle-outline" size={20} color={COLORS.danger} />
+                            </TouchableOpacity>
+
+                            <View style={[styles.separator, { backgroundColor: colors.border }]} />
+
+                            <TouchableOpacity style={styles.row} onPress={async () => {
+                                await resetLocationDisclosure();
+                                // No alert needed, the modal should appear. 
+                                // Actually, resetLocationDisclosure just sets the state. 
+                                // Since logic is "setShowLocationDisclosure(true)", it will appear immediately over appropriate screens.
+                                // SettingsScreen is inside the provider, so it should show if the modal is in the provider (which it is).
+                            }}>
+                                <Text style={[styles.label, { color: COLORS.primary }]}>Show Location Disclosure</Text>
+                                <Ionicons name="location-outline" size={20} color={COLORS.primary} />
                             </TouchableOpacity>
                         </View>
                     </>

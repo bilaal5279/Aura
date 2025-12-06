@@ -39,6 +39,8 @@ class NotificationService {
                 title,
                 body,
                 sound: true,
+                priority: Notifications.AndroidNotificationPriority.MAX,
+                vibrate: [0, 250, 250, 250],
             },
             trigger: null, // Immediate
         });

@@ -42,10 +42,10 @@ function AppContent() {
 
 export default function Layout() {
   return (
-    <RadarProvider>
-      <ThemeProvider>
+    <ThemeProvider>
+      <RadarProvider>
         <AppContent />
-      </ThemeProvider>
-    </RadarProvider>
+      </RadarProvider>
+    </ThemeProvider>
   );
 }

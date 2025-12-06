@@ -87,7 +87,7 @@ const DeviceItem = ({ item, isPro, onPress }: { item: ScannedDevice, isPro: bool
 export default function Dashboard() {
     const router = useRouter();
     const { colors, isDark } = useTheme();
-    const { isScanning, devices, bluetoothState, connectedIds, trackedDevices, toggleTracking, updateDeviceSettings, backgroundTrackingEnabled, isPro, showPaywall, hasSeenOnboarding } = useRadar();
+    const { isScanning, devices, bluetoothState, connectedIds, trackedDevices, toggleTracking, updateDeviceSettings, backgroundTrackingEnabled, isPro, showPaywall, hasSeenOnboarding, freeScanUsed } = useRadar();
     const [selectedDevice, setSelectedDevice] = useState<ScannedDevice | null>(null);
     const [showNotifyModal, setShowNotifyModal] = useState(false);
 
@@ -146,10 +146,24 @@ export default function Dashboard() {
             setShowNotifyModal(true);
         } else {
             // Device is live
-            if (!isPro) {
-                setSelectedDevice(device);
-                showPaywall();
+            if (!isPro && freeScanUsed) {
+                // Conversion Optimization: Explain why paywall is showing
+                Alert.alert(
+                    "Free Scan Used",
+                    "You've used your one free scan. Start your free trial now to continue finding unlimited devices with precision.",
+                    [
+                        { text: "Maybe Later", style: "cancel" },
+                        {
+                            text: "Start Free Trial",
+                            style: "default",
+                            isPreferred: true,
+                            onPress: () => showPaywall()
+                        }
+                    ]
+                );
             } else {
+                // Either Pro, or hasn't used free scan yet
+                // Navigate to screen (which will consume the free scan if applicable)
                 router.push({
                     pathname: `/device/${device.device.id}` as any,
                     params: { name: device.device.name || 'Unknown Device' }

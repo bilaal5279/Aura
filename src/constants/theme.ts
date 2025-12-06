@@ -18,6 +18,8 @@ export const THEME = {
         card: 'rgba(255, 255, 255, 0.05)',
         border: 'rgba(255, 255, 255, 0.1)',
         icon: '#FFFFFF',
+        surface: '#1C1C1E', // Solid card color
+        surfaceVariant: '#2C2C2E', // Lighter surface for nested elements
     },
     light: {
         background: '#F2F2F7',
@@ -26,6 +28,8 @@ export const THEME = {
         card: '#FFFFFF',
         border: 'rgba(0, 0, 0, 0.1)',
         icon: '#000000',
+        surface: '#FFFFFF',
+        surfaceVariant: '#F3F4F6', // Slightly darker surface
     }
 };
 

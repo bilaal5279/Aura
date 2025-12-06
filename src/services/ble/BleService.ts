@@ -11,6 +11,7 @@ class BleService {
     private lastSeenDevices: Map<string, { timestamp: number; rssi: number }> = new Map();
     // Map to track last seen time by Name (for Dual-Mode devices with different MACs)
     private lastSeenNames: Map<string, number> = new Map();
+    private isForegroundScanActive = false;
 
     constructor() {
         this.manager = new BleManager({
@@ -43,6 +44,30 @@ class BleService {
         return true;
     }
 
+    async requestBackgroundLocationPermission(): Promise<boolean> {
+        if (Platform.OS === 'android') {
+            try {
+                // For Android 10+ (API 29+), we need to request ACCESS_BACKGROUND_LOCATION
+                // This usually requires taking the user to settings on Android 11+
+                const granted = await PermissionsAndroid.request(
+                    PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION,
+                    {
+                        title: 'Background Location Permission',
+                        message: 'Find My Device needs to access your location in the background to detect when you leave devices behind.',
+                        buttonNeutral: 'Ask Me Later',
+                        buttonNegative: 'Cancel',
+                        buttonPositive: 'OK',
+                    }
+                );
+                return granted === PermissionsAndroid.RESULTS.GRANTED;
+            } catch (err) {
+                console.warn(err);
+                return false;
+            }
+        }
+        return true;
+    }
+
     async enableBluetooth() {
         if (Platform.OS === 'android') {
             try {
@@ -62,6 +87,7 @@ class BleService {
     }
 
     async startScan(onDeviceFound: (device: Device) => void, onError?: (error: any) => void) {
+        this.isForegroundScanActive = true;
         const state = await this.manager.state();
         if (state === 'PoweredOn') {
             this.scan(onDeviceFound, onError);
@@ -144,6 +170,7 @@ class BleService {
     }
 
     stopScan() {
+        this.isForegroundScanActive = false;
         this.manager.stopDeviceScan();
     }
 
@@ -151,8 +178,7 @@ class BleService {
         console.log('Background tracking active...');
         await backgroundTracker.start(async () => {
             // This task runs in the background
-            // We don't need to do anything specific here as the interval in RadarContext
-            // will keep running as long as the app is alive.
+            await this.performBackgroundScan();
         });
     }
 
@@ -162,7 +188,17 @@ class BleService {
     }
 
     async performBackgroundScan() {
-        console.log('[BleService] Performing background scan...');
+        if (this.isForegroundScanActive) {
+            console.log('[Android Background Debug] Foreground scan active. Skipping background scan to avoid conflict.');
+            return;
+        }
+
+        console.log('[Android Background Debug] Starting background scan cycle...');
+
+        // Ensure strictly no other scan is running
+        try {
+            await this.manager.stopDeviceScan();
+        } catch (e) { }
 
         // 1. Get tracked devices from storage (since we are in background/headless)
         let trackedDevices = new Map<string, DeviceSettings>();
@@ -182,7 +218,7 @@ class BleService {
         }
 
         if (trackedDevices.size === 0) {
-            console.log('[BleService] No tracked devices, skipping scan.');
+            console.log('[Android Background Debug] No tracked devices found in storage. Aborting.');
             return;
         }
 
@@ -195,9 +231,9 @@ class BleService {
             return;
         }
 
-        console.log(`[BleService] Scanning for ${devicesToScan.length} devices:`);
+        console.log(`[Android Background Debug] Scanning for ${devicesToScan.length} devices involved in background tracking:`);
         devicesToScan.forEach(([id, settings]) => {
-            console.log(` - "${settings.name || 'Unknown'}" (ID: ${id})`);
+            console.log(`[Android Background Debug]  - Target: "${settings.name || 'Unknown'}" (ID: ${id}) | NotifyOnFound: ${settings.notifyOnFound} | NotifyOnLost: ${settings.notifyOnLost}`);
         });
 
         // Collect Service UUIDs for targeted scanning (Required for iOS Background)
@@ -236,8 +272,39 @@ class BleService {
 
         // CRITICAL FIX: Check for System Connected devices first!
         // Devices like headphones (Audeze) stop advertising when connected.
-        // We must check for them using ALL possible UUIDs they might have (Battery, HID, etc.)
-        // even if we are only scanning for a specific one.
+
+        // 1. Direct Connection Check (If app is already connected)
+        for (const [id, settings] of devicesToScan) {
+            try {
+                const isConnected = await this.manager.isDeviceConnected(id);
+                if (isConnected) {
+                    console.log(`[Android Background Debug] Device "${settings.name}" (${id}) verified as CONNECTED via isDeviceConnected().`);
+                    foundDeviceIds.add(id);
+
+                    // Check if we should notify on found
+                    if (settings.notifyOnFound) {
+                        const lastNotifiedKey = `last_notified_found_${id}`;
+                        const lastNotified = await AsyncStorage.getItem(lastNotifiedKey);
+                        const now = Date.now();
+
+                        // 5 minute cooldown to prevent spam
+                        if (!lastNotified || (now - parseInt(lastNotified) > 5 * 60 * 1000)) {
+                            console.log(`[BleService] Sending FOUND notification for "${settings.name || 'Device'}" (${id})`);
+                            notificationService.sendNotification(
+                                'Device Found!',
+                                `${settings.name || 'Device'} is nearby.`
+                            );
+                            await AsyncStorage.setItem(lastNotifiedKey, now.toString());
+                        }
+                    }
+                    // RESET Lost Notification Flag since it's found
+                    await AsyncStorage.removeItem(`has_notified_lost_${id}`);
+                }
+            } catch (e) {
+                // Ignore errors
+            }
+        }
+
         try {
             const commonUUIDs = ['180F', '180A', '1800', '1801', '1812'];
             const checkUUIDs = [...scanUUIDs, ...commonUUIDs];
@@ -245,7 +312,7 @@ class BleService {
             const connectedSystemDevices = await this.manager.connectedDevices(checkUUIDs);
             connectedSystemDevices.forEach(async (device) => {
                 if (trackedDevices.has(device.id)) {
-                    console.log(`[BleService] Device "${device.name}" (${device.id}) is SYSTEM CONNECTED. Marking as found.`);
+                    console.log(`[Android Background Debug] Device "${device.name}" (${device.id}) found via SYSTEM CONNECTION.`);
                     foundDeviceIds.add(device.id);
 
                     // Check if we should notify on found
@@ -287,6 +354,7 @@ class BleService {
 
                     // Only care if we are tracking this device
                     if (settings) {
+                        console.log(`[Android Background Debug] Discovered tracked device: ${device.name} (${device.id}) via RSSI: ${device.rssi}`);
                         foundDeviceIds.add(device.id);
 
                         // Check if we should notify on found
@@ -312,40 +380,47 @@ class BleService {
             }
         );
 
-        // 3. Stop scan after 10 seconds and check for LOST devices
-        setTimeout(async () => {
-            console.log(`[BleService] Stopping background scan. Found ${foundDeviceIds.size} devices.`);
-            this.manager.stopDeviceScan();
+        // 3. Wait for 10 seconds (Scan Duration)
+        await new Promise(resolve => setTimeout(resolve, 10000));
 
-            // Check for lost devices
-            // We iterate over devices that we WANTED to scan (devicesToScan)
-            for (const [id, settings] of devicesToScan) {
-                if (foundDeviceIds.has(id)) {
-                    // Device found
-                    // console.log(`[BleService] Device "${settings.name}" was found.`);
-                } else {
-                    // Device NOT found
-                    if (settings.notifyOnLost) {
-                        const notifiedKey = `has_notified_lost_${id}`;
-                        const hasNotified = await AsyncStorage.getItem(notifiedKey);
-                        const deviceName = settings.name || 'Unknown Device';
+        console.log(`[Android Background Debug] Scan cycle complete. Total unique devices found: ${foundDeviceIds.size}`);
 
-                        if (!hasNotified) {
-                            console.log(`[BleService] "${deviceName}" (${id}) missing. Sending LOST notification.`);
-                            notificationService.sendNotification(
-                                'Device Lost!',
-                                `${deviceName} has gone out of range.`
-                            );
-                            await AsyncStorage.setItem(notifiedKey, 'true');
-                        } else {
-                            console.log(`[BleService] "${deviceName}" missing, but already notified.`);
-                        }
+        // Only stop scan if we are NOT in foreground mode. 
+        // If foreground mode was activated during our sleep, we must NOT stop the scan (as it belongs to UI now).
+        if (!this.isForegroundScanActive) {
+            try { await this.manager.stopDeviceScan(); } catch (e) { }
+        } else {
+            console.log('[Android Background Debug] Foreground scan became active during cycle. Leaving scanner ON.');
+        }
+
+        // Check for lost devices
+        // We iterate over devices that we WANTED to scan (devicesToScan)
+        for (const [id, settings] of devicesToScan) {
+            if (foundDeviceIds.has(id)) {
+                // Device found
+                // console.log(`[BleService] Device "${settings.name}" was found.`);
+            } else {
+                // Device NOT found
+                if (settings.notifyOnLost) {
+                    const notifiedKey = `has_notified_lost_${id}`;
+                    const hasNotified = await AsyncStorage.getItem(notifiedKey);
+                    const deviceName = settings.name || 'Unknown Device';
+
+                    if (!hasNotified) {
+                        console.log(`[Android Background Debug] LOST ALERT: "${deviceName}" (${id}) is not among found devices. Sending notification.`);
+                        notificationService.sendNotification(
+                            'Device Lost!',
+                            `${deviceName} has gone out of range.`
+                        );
+                        await AsyncStorage.setItem(notifiedKey, 'true');
                     } else {
-                        console.log(`[BleService] "${settings.name}" missing, but notifyOnLost is disabled.`);
+                        console.log(`[Android Background Debug] "${deviceName}" is missing, but LOST notification was already sent recently.`);
                     }
+                } else {
+                    console.log(`[BleService] "${settings.name}" missing, but notifyOnLost is disabled.`);
                 }
             }
-        }, 10000);
+        }
     }
 
     onStateChange(listener: (state: string) => void) {

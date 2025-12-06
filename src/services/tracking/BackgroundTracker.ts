@@ -32,7 +32,7 @@ class BackgroundTracker {
 
         const options = {
             taskName: 'AuraTracker',
-            taskTitle: 'Aura is protecting your devices',
+            taskTitle: 'Find my device is protecting your devices',
             taskDesc: 'Scanning for separation alerts...',
             taskIcon: {
                 name: 'ic_launcher',
@@ -67,7 +67,7 @@ class BackgroundTracker {
                     pausesUpdatesAutomatically: false,
                     showsBackgroundLocationIndicator: true, // Required for background execution
                     foregroundService: {
-                        notificationTitle: "Aura Tracking",
+                        notificationTitle: "Find my device",
                         notificationBody: "Monitoring devices in background"
                     }
                 });

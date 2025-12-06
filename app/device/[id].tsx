@@ -73,31 +73,31 @@ export default function DeviceDetailScreen() {
 
     // Free Scan Limit Logic
     const isProRef = useRef(isPro);
-    const freeScanUsedRef = useRef(freeScanUsed);
+    // const freeScanUsedRef = useRef(freeScanUsed); // No longer needed for cleanup
 
     useEffect(() => {
         isProRef.current = isPro;
-        freeScanUsedRef.current = freeScanUsed;
+        // freeScanUsedRef.current = freeScanUsed;
     }, [isPro, freeScanUsed]);
 
     useEffect(() => {
+        let timeout: any;
+
         const checkAccess = async () => {
-            if (!isPro && freeScanUsed) {
-                // Already used free scan -> Paywall
-                await showPaywall();
-                // If still not Pro after paywall closes, go back
-                if (!isProRef.current) {
-                    router.back();
-                }
+            // Only mark as used if not Pro and not already used
+            // The blocking logic is now handled in the list screen (app/index.tsx)
+            // so we don't need to kick them out here.
+            if (!isPro && !freeScanUsed) {
+                // Mark as used after a short delay to ensure they actually saw the screen
+                timeout = setTimeout(() => {
+                    useFreeScan();
+                }, 1000);
             }
         };
         checkAccess();
 
         return () => {
-            // Mark as used on exit if they were not Pro and hadn't used it yet
-            if (!isProRef.current && !freeScanUsedRef.current) {
-                useFreeScan();
-            }
+            if (timeout) clearTimeout(timeout);
         };
     }, []);
 

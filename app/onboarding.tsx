@@ -121,6 +121,67 @@ const ShieldAnimation = ({ color }: { color: string }) => {
     );
 };
 
+const PremiumUnlock = ({ color }: { color: string }) => {
+    const pulse = useRef(new Animated.Value(1)).current;
+    const rotate = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        Animated.loop(
+            Animated.sequence([
+                Animated.timing(pulse, { toValue: 1.2, duration: 1500, useNativeDriver: true }),
+                Animated.timing(pulse, { toValue: 1, duration: 1500, useNativeDriver: true })
+            ])
+        ).start();
+
+        Animated.loop(
+            Animated.timing(rotate, { toValue: 1, duration: 10000, easing: Easing.linear, useNativeDriver: true })
+        ).start();
+    }, []);
+
+    const spin = rotate.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0deg', '360deg']
+    });
+
+    return (
+        <View style={{ width: 300, height: 300, justifyContent: 'center', alignItems: 'center' }}>
+            {/* Glowing background */}
+            <Animated.View style={{
+                position: 'absolute',
+                width: 200,
+                height: 200,
+                borderRadius: 100,
+                backgroundColor: color,
+                opacity: 0.2,
+                transform: [{ scale: pulse }]
+            }} />
+
+            {/* Orbiting Icons */}
+            <Animated.View style={{
+                position: 'absolute',
+                width: 260,
+                height: 260,
+                transform: [{ rotate: spin }]
+            }}>
+                <View style={[styles.orbitIcon, { top: 0, alignSelf: 'center', backgroundColor: color }]}>
+                    <Ionicons name="key" size={16} color="#FFF" />
+                </View>
+                <View style={[styles.orbitIcon, { bottom: 60, left: 10, backgroundColor: color }]}>
+                    <Ionicons name="wallet" size={16} color="#FFF" />
+                </View>
+                <View style={[styles.orbitIcon, { bottom: 60, right: 10, backgroundColor: color }]}>
+                    <Ionicons name="headset" size={16} color="#FFF" />
+                </View>
+            </Animated.View>
+
+            {/* Central Shield */}
+            <View style={[styles.premiumShield, { backgroundColor: color }]}>
+                <Ionicons name="shield-checkmark" size={60} color="#FFF" />
+            </View>
+        </View>
+    );
+};
+
 // --- Main Screen ---
 
 const SLIDES = [
@@ -140,9 +201,10 @@ const SLIDES = [
     },
     {
         id: '3',
-        title: 'Total\nProtection',
-        description: 'Enjoy peace of mind knowing your valuables are always monitored and secure.',
-        type: 'shield',
+        title: 'Total Peace\nof Mind',
+        description: 'Unlock full access to history, smart alerts, and background tracking.',
+        type: 'premium',
+        benefits: ['Limitless History', 'Background Scan', 'Smart Alerts'],
         trialText: '3 Days Free, Cancel Anytime'
     }
 ];
@@ -178,11 +240,12 @@ export default function OnboardingScreen() {
             case 'radar': return <RadarAnimation color={COLORS.primary} />;
             case 'notification': return <MockNotification isDark={isDark} />;
             case 'shield': return <ShieldAnimation color={COLORS.success} />;
+            case 'premium': return <PremiumUnlock color={COLORS.primary} />; // No text prop needed
             default: return null;
         }
     };
 
-    const renderItem = ({ item, index }: { item: typeof SLIDES[0], index: number }) => {
+    const renderItem = ({ item, index }: { item: typeof SLIDES[0] & { benefits?: string[] }, index: number }) => {
         return (
             <View style={[styles.slide, { width }]}>
                 <View style={styles.visualContainer}>
@@ -190,6 +253,14 @@ export default function OnboardingScreen() {
                 </View>
 
                 <View style={styles.textContainer}>
+                    {item.benefits && (
+                        <View style={{ marginBottom: 10, alignItems: 'center' }}>
+                            {item.benefits.map((benefit, i) => (
+                                <Text key={i} style={[styles.benefitText, { color: colors.text }]}>✓ {benefit}</Text>
+                            ))}
+                        </View>
+                    )}
+
                     <Text style={[styles.title, { color: colors.text }]}>{item.title}</Text>
                     <Text style={[styles.description, { color: colors.textSecondary }]}>{item.description}</Text>
 
@@ -446,5 +517,37 @@ const styles = StyleSheet.create({
     notifBody: {
         fontSize: 14,
         lineHeight: 18,
+    },
+    // Premium Unlock Styles
+    orbitIcon: {
+        position: 'absolute',
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+        elevation: 6,
+    },
+    premiumShield: {
+        width: 100,
+        height: 100,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.4,
+        shadowRadius: 12,
+        elevation: 10,
+    },
+    benefitText: {
+        fontSize: 16,
+        fontWeight: '600',
+        marginVertical: 4,
+        opacity: 0.9,
     }
 });
