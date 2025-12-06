@@ -208,9 +208,9 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     useEffect(() => {
         const initRevenueCat = async () => {
             if (Platform.OS === 'android') {
-                Purchases.configure({ apiKey: 'test_ARCJxvSrEaJThOsDVOnaBWAuWmp' });
+                Purchases.configure({ apiKey: 'goog_JBBkgIRgeDVKmqtotkskdDmNshx' });
             } else {
-                Purchases.configure({ apiKey: 'test_ARCJxvSrEaJThOsDVOnaBWAuWmp' });
+                Purchases.configure({ apiKey: 'appl_XwIGaPdrCGvfrOgXNpEjjCSwHKq' });
             }
             try {
                 const customerInfo = await Purchases.getCustomerInfo();
