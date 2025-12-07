@@ -180,6 +180,20 @@ export default function SettingsScreen() {
                     </TouchableOpacity>
                 </View>
 
+                {/* Legal */}
+                <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Legal</Text>
+                <View style={[styles.section, { backgroundColor: colors.card }]}>
+                    <TouchableOpacity style={styles.row} onPress={() => router.push({ pathname: '/browser', params: { url: 'https://digitalsprout.org/findmydevice/terms-of-service', title: 'Terms of Service' } })}>
+                        <Text style={[styles.label, { color: colors.text }]}>Terms of Service</Text>
+                        <Ionicons name="document-text-outline" size={20} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                    <View style={[styles.separator, { backgroundColor: colors.border }]} />
+                    <TouchableOpacity style={styles.row} onPress={() => router.push({ pathname: '/browser', params: { url: 'https://digitalsprout.org/findmydevice/privacy-policy', title: 'Privacy Policy' } })}>
+                        <Text style={[styles.label, { color: colors.text }]}>Privacy Policy</Text>
+                        <Ionicons name="shield-checkmark-outline" size={20} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                </View>
+
                 {/* Debug / Dev Only */}
                 {__DEV__ && (
                     <>
