@@ -176,7 +176,9 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Trigger on FIRST successful find (if not already rated)
         if (newCount === 1 && !hasRated) {
             console.log('[RadarContext] Triggering Rating Modal (First Find)');
-            setShowRatingModal(true);
+            setTimeout(() => {
+                setShowRatingModal(true);
+            }, 2000);
         }
     };
 

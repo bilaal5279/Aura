@@ -12,7 +12,7 @@ const IS_SMALL_DEVICE = width < 380 || height < 700;
 const IS_VERY_SHORT = height < 600;
 
 // Aggressively reduced sizes to prevent overlap on small screens
-const VISUAL_SIZE = IS_VERY_SHORT ? 140 : IS_SMALL_DEVICE ? 180 : 300;
+const VISUAL_SIZE = IS_VERY_SHORT ? 120 : IS_SMALL_DEVICE ? 160 : 220;
 const NOTIF_WIDTH = IS_SMALL_DEVICE ? 220 : 280;
 const SPACING_DYNAMIC = IS_SMALL_DEVICE ? 12 : 32;
 
@@ -195,6 +195,85 @@ const PremiumUnlock = ({ color }: { color: string }) => {
     );
 };
 
+// --- Components ---
+
+const HowItWorksDemo = ({ color, textColor }: { color: string, textColor: string }) => {
+    const [simulatedStrength, setSimulatedStrength] = useState(0);
+    const ORB_BASE_RADIUS = VISUAL_SIZE * 0.2;
+
+    useEffect(() => {
+        let start = Date.now();
+        const duration = 4000; // 4 seconds loop
+
+        const animate = () => {
+            const now = Date.now();
+            const elapsed = (now - start) % duration;
+            const progress = elapsed / duration;
+
+            // Simulate getting closer (0 -> 1) then reset
+            // Use sine wave for smoother transition up and down or just ramp up
+            // Let's ramp up 0->1 in 3s, then hold 1s
+            let strength = 0;
+            if (progress < 0.75) {
+                strength = progress / 0.75; // 0 to 1
+            } else {
+                strength = 1; // Hold at 1
+            }
+
+            setSimulatedStrength(strength);
+            requestAnimationFrame(animate);
+        };
+        const frame = requestAnimationFrame(animate);
+        return () => cancelAnimationFrame(frame);
+    }, []);
+
+    const getOrbColor = (strength: number) => {
+        if (strength > 0.8) return '#00FF9D'; // Neon Green (Near)
+        if (strength > 0.5) return '#00E0FF'; // Cyan (Mid)
+        return '#FF0055'; // Neon Red (Far)
+    };
+
+    const orbColor = getOrbColor(simulatedStrength);
+    const percentage = Math.round(simulatedStrength * 100);
+    const label = simulatedStrength > 0.9 ? "IT'S RIGHT HERE!" :
+        simulatedStrength > 0.7 ? "VERY CLOSE" :
+            simulatedStrength > 0.5 ? "GETTING WARMER" :
+                simulatedStrength > 0.3 ? "COLD" : "SEARCHING...";
+
+    return (
+        <View style={{ width: VISUAL_SIZE, height: VISUAL_SIZE * 1.2, justifyContent: 'center', alignItems: 'center' }}>
+            {/* Orb Visualization */}
+            <View style={{ width: VISUAL_SIZE, height: VISUAL_SIZE, alignItems: 'center', justifyContent: 'center' }}>
+                <Canvas style={{ width: VISUAL_SIZE, height: VISUAL_SIZE }}>
+                    {/* Core Orb */}
+                    <Circle cx={VISUAL_SIZE / 2} cy={VISUAL_SIZE / 2} r={ORB_BASE_RADIUS + (simulatedStrength * (ORB_BASE_RADIUS * 0.3))} color={orbColor} opacity={0.8}>
+                        <Blur blur={10} />
+                    </Circle>
+
+                    {/* Inner Core */}
+                    <Circle cx={VISUAL_SIZE / 2} cy={VISUAL_SIZE / 2} r={ORB_BASE_RADIUS * 0.5} color="#FFF" opacity={0.9} />
+
+                    {/* Pulse Ring 1 */}
+                    <Circle cx={VISUAL_SIZE / 2} cy={VISUAL_SIZE / 2} r={ORB_BASE_RADIUS * 1.5} style="stroke" strokeWidth={2} color={orbColor} opacity={0.3 * simulatedStrength} />
+
+                    {/* Pulse Ring 2 */}
+                    <Circle cx={VISUAL_SIZE / 2} cy={VISUAL_SIZE / 2} r={ORB_BASE_RADIUS * 2.2} style="stroke" strokeWidth={1} color={orbColor} opacity={0.1 * simulatedStrength} />
+                </Canvas>
+            </View>
+
+            {/* Signal Text */}
+            <View style={{ alignItems: 'center', marginTop: -30 }}>
+                <Text style={{ fontSize: 24, fontWeight: 'bold', color: textColor, fontVariant: ['tabular-nums'] }}>
+                    {percentage}%
+                </Text>
+                <Text style={{ fontSize: 10, fontWeight: '900', letterSpacing: 1, color: orbColor, marginTop: 2 }}>
+                    {label}
+                </Text>
+            </View>
+        </View>
+    );
+};
+
 // --- Main Screen ---
 
 const SLIDES = [
@@ -214,11 +293,10 @@ const SLIDES = [
     },
     {
         id: '3',
-        title: 'Total Peace\nof Mind',
-        description: 'Unlock full access to history, smart alerts, and background tracking.',
-        type: 'premium',
-        benefits: ['Limitless History', 'Background Scan', 'Smart Alerts'],
-        trialText: '3 Days Free, Cancel Anytime'
+        title: 'How It\nWorks',
+        description: 'Walk around and watch the signal strength rise as you get closer to your lost item.',
+        type: 'demo',
+        trialText: 'Simple & Effective'
     }
 ];
 
@@ -253,7 +331,8 @@ export default function OnboardingScreen() {
             case 'radar': return <RadarAnimation color={COLORS.primary} />;
             case 'notification': return <MockNotification isDark={isDark} />;
             case 'shield': return <ShieldAnimation color={COLORS.success} />;
-            case 'premium': return <PremiumUnlock color={COLORS.primary} />; // No text prop needed
+            case 'premium': return <PremiumUnlock color={COLORS.primary} />;
+            case 'demo': return <HowItWorksDemo color={COLORS.primary} textColor={colors.text} />;
             default: return null;
         }
     };

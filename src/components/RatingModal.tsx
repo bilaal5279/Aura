@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Dimensions, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Dimensions, Easing, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { COLORS, SPACING } from '../constants/theme';
 import { useTheme } from '../context/ThemeContext';
 
@@ -22,17 +22,23 @@ export const RatingModal: React.FC<RatingModalProps> = ({ visible, onRate, onClo
     useEffect(() => {
         if (visible) {
             setRating(0);
+            // Reset values before animating
+            scaleAnim.setValue(0.8);
+            opacityAnim.setValue(0);
+
             Animated.parallel([
                 Animated.spring(scaleAnim, {
                     toValue: 1,
                     useNativeDriver: true,
-                    damping: 20,
-                    stiffness: 90
+                    damping: 15,
+                    stiffness: 120,
+                    mass: 0.8
                 }),
                 Animated.timing(opacityAnim, {
                     toValue: 1,
-                    duration: 300,
-                    useNativeDriver: true
+                    duration: 400,
+                    useNativeDriver: true,
+                    easing: Easing.out(Easing.cubic)
                 })
             ]).start();
         } else {
