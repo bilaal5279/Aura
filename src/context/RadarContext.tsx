@@ -51,13 +51,16 @@ interface RadarContextType {
     resetOnboarding: () => Promise<void>;
     appLaunchCount: number;
     hasRated: boolean;
-    rateApp: () => Promise<void>;
+    rateApp: (openStore?: boolean) => Promise<void>;
     resetRating: () => Promise<void>;
     triggerRating: () => Promise<void>;
     freeScanUsed: boolean;
     useFreeScan: () => Promise<void>;
     resetFreeScan: () => Promise<void>;
     resetLocationDisclosure: () => Promise<void>;
+    showRatingModal: boolean;
+    setShowRatingModal: (show: boolean) => void;
+    logDeviceFound: () => Promise<void>;
 }
 
 const RadarContext = createContext<RadarContextType>({
@@ -91,6 +94,9 @@ const RadarContext = createContext<RadarContextType>({
     useFreeScan: async () => { },
     resetFreeScan: async () => { },
     resetLocationDisclosure: async () => { },
+    showRatingModal: false,
+    setShowRatingModal: () => { },
+    logDeviceFound: async () => { },
 });
 
 export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -127,6 +133,8 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const [appLaunchCount, setAppLaunchCount] = useState(0);
     const [hasRated, setHasRated] = useState(false);
     const [freeScanUsed, setFreeScanUsed] = useState(false);
+    const [showRatingModal, setShowRatingModal] = useState(false);
+    const [foundDeviceCount, setFoundDeviceCount] = useState(0);
 
     useEffect(() => {
         const loadRatingState = async () => {
@@ -134,38 +142,72 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 const count = await AsyncStorage.getItem('appLaunchCount');
                 const rated = await AsyncStorage.getItem('hasRated');
                 const scanUsed = await AsyncStorage.getItem('freeScanUsed');
+                const foundCount = await AsyncStorage.getItem('foundDeviceCount');
+
                 const currentCount = count ? parseInt(count) : 0;
                 setAppLaunchCount(currentCount + 1);
                 await AsyncStorage.setItem('appLaunchCount', (currentCount + 1).toString());
-                if (rated) setHasRated(JSON.parse(rated));
+
+                if (rated) {
+                    const hasRatedBool = JSON.parse(rated);
+                    setHasRated(hasRatedBool);
+                }
+
+                if (foundCount) setFoundDeviceCount(parseInt(foundCount));
                 if (scanUsed) setFreeScanUsed(JSON.parse(scanUsed));
+
+                // Trigger logic: 3rd launch or (handled dynamically) Found event
+                // If it's the 3rd launch and they haven't rated, show it.
+                // We add a slight delay so it doesn't pop up INSTANTLY on boot.
+                if (currentCount + 1 === 3 && (!rated || JSON.parse(rated) === false)) {
+                    setTimeout(() => setShowRatingModal(true), 2000);
+                }
             } catch (e) { console.warn('Failed to load rating state', e); }
         };
         loadRatingState();
     }, []);
 
-    const rateApp = async () => {
+    const logDeviceFound = async () => {
+        const newCount = foundDeviceCount + 1;
+        setFoundDeviceCount(newCount);
+        console.log('[RadarContext] Device Found! Count:', newCount, 'HasRated:', hasRated);
+        await AsyncStorage.setItem('foundDeviceCount', newCount.toString());
+
+        // Trigger on FIRST successful find (if not already rated)
+        if (newCount === 1 && !hasRated) {
+            console.log('[RadarContext] Triggering Rating Modal (First Find)');
+            setShowRatingModal(true);
+        }
+    };
+
+    const rateApp = async (openStore: boolean = true) => {
         setHasRated(true);
         await AsyncStorage.setItem('hasRated', 'true');
+        // Close modal when rating action is taken
+        setShowRatingModal(false);
+
+        if (!openStore) return;
 
         try {
-            if (await StoreReview.hasAction()) {
+            // In DEV, force the fallback so we can verify the URL logic works.
+            // On Android, requestReview() often is silent in dev/testing tracks if criteria aren't met.
+            if (!__DEV__ && await StoreReview.hasAction()) {
                 await StoreReview.requestReview();
             } else {
                 // Fallback to store links
                 if (Platform.OS === 'ios') {
-                    Linking.openURL('https://apps.apple.com/app/id123456789'); // Replace with actual App ID
+                    Linking.openURL('https://apps.apple.com/app/id6756185799');
                 } else {
-                    Linking.openURL('market://details?id=com.findmydevice.app'); // Replace with actual Package Name
+                    Linking.openURL('market://details?id=com.aura.tracker');
                 }
             }
         } catch (error) {
             console.warn('Error requesting review:', error);
             // Fallback if native review fails
             if (Platform.OS === 'ios') {
-                Linking.openURL('https://apps.apple.com/app/id123456789');
+                Linking.openURL('https://apps.apple.com/app/id6756185799');
             } else {
-                Linking.openURL('market://details?id=com.findmydevice.app');
+                Linking.openURL('market://details?id=com.aura.tracker');
             }
         }
     };
@@ -173,15 +215,16 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const resetRating = async () => {
         setAppLaunchCount(0);
         setHasRated(false);
+        setFoundDeviceCount(0);
+        setShowRatingModal(false);
         await AsyncStorage.setItem('appLaunchCount', '0');
+        await AsyncStorage.setItem('foundDeviceCount', '0');
         await AsyncStorage.removeItem('hasRated');
     };
 
     const triggerRating = async () => {
-        setAppLaunchCount(3);
-        setHasRated(false);
-        await AsyncStorage.setItem('appLaunchCount', '3');
-        await AsyncStorage.removeItem('hasRated');
+        // Manually trigger for testing
+        setShowRatingModal(true);
     };
 
     const useFreeScan = async () => {
@@ -619,6 +662,10 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const safeToggleBackgroundTracking = async (enabled: boolean) => {
         if (enabled) {
+            if (!isPro) {
+                showPaywall();
+                return;
+            }
             setShowLocationDisclosure(true);
         } else {
             toggleBackgroundTracking(false);
@@ -660,7 +707,10 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             freeScanUsed,
             useFreeScan,
             resetFreeScan,
-            resetLocationDisclosure
+            resetLocationDisclosure,
+            showRatingModal,
+            setShowRatingModal,
+            logDeviceFound
         }}>
             {children}
             <LocationDisclosureModal

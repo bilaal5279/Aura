@@ -53,7 +53,7 @@ export default function DeviceDetailScreen() {
     // Normalized 0 to 1
     const signalStrength = Math.max(0, Math.min(1, (rssi + 100) / 50));
 
-    const { trackedDevices, toggleTracking, updateDeviceSettings, distanceUnit, backgroundTrackingEnabled, isPro, showPaywall, freeScanUsed, useFreeScan } = useRadar();
+    const { trackedDevices, toggleTracking, updateDeviceSettings, distanceUnit, backgroundTrackingEnabled, isPro, showPaywall, freeScanUsed, useFreeScan, logDeviceFound } = useRadar();
     const deviceSettings = trackedDevices.get(id as string);
     const isTracked = !!deviceSettings;
 
@@ -113,6 +113,7 @@ export default function DeviceDetailScreen() {
         setSoundEnabled(false);
         setVibrationEnabled(false);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        logDeviceFound();
     };
 
     const handleToggleSetting = (setting: keyof DeviceSettings) => {

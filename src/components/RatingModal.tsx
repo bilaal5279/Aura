@@ -6,7 +6,7 @@ import { useTheme } from '../context/ThemeContext';
 
 interface RatingModalProps {
     visible: boolean;
-    onRate: () => void;
+    onRate: (rating: number) => void;
     onClose: () => void;
     onDontAskAgain: () => void;
 }
@@ -46,12 +46,10 @@ export const RatingModal: React.FC<RatingModalProps> = ({ visible, onRate, onClo
 
     const handleStarPress = (star: number) => {
         setRating(star);
-        if (star >= 4) {
-            // Delay slightly to show the star selection then trigger action
-            setTimeout(() => {
-                onRate();
-            }, 500);
-        }
+        // triggered for all ratings so parent can handle logic
+        setTimeout(() => {
+            onRate(star);
+        }, 500);
     };
 
     if (!visible) return null;

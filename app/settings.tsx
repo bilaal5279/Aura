@@ -227,7 +227,7 @@ export default function SettingsScreen() {
 
                             <TouchableOpacity style={styles.row} onPress={async () => {
                                 await resetRating();
-                                Alert.alert('Success', 'Rating status reset. Launch count is 0.');
+                                Alert.alert('Success', 'Rating status reset. Launch=0, Found=0.');
                             }}>
                                 <Text style={[styles.label, { color: COLORS.danger }]}>Reset Rating Status</Text>
                                 <Ionicons name="refresh-circle-outline" size={20} color={COLORS.danger} />

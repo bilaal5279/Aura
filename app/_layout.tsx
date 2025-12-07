@@ -1,39 +1,29 @@
 import { Stack } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { RatingModal } from '../src/components/RatingModal';
 import { RadarProvider, useRadar } from '../src/context/RadarContext';
 import { ThemeProvider } from '../src/context/ThemeContext';
 
 function AppContent() {
-  const { appLaunchCount, hasRated, rateApp } = useRadar();
-  const [showRating, setShowRating] = useState(false);
+  const { showRatingModal, setShowRatingModal, rateApp } = useRadar();
 
-  useEffect(() => {
-    // Trigger on 3rd launch if not rated
-    if (appLaunchCount === 3 && !hasRated) {
-      const timer = setTimeout(() => setShowRating(true), 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [appLaunchCount, hasRated]);
-
-  const handleRate = async () => {
-    await rateApp();
-    setShowRating(false);
+  const handleRate = async (rating: number) => {
+    // If 5 stars, open store (true). If less, just close and mark rated (false).
+    await rateApp(rating === 5);
   };
 
   const handleDontAsk = async () => {
-    // Treat "Don't Ask Again" as rated so it doesn't show again
-    await rateApp();
-    setShowRating(false);
+    // Treat "Don't Ask Again" as rated so it doesn't show again, no store opening
+    await rateApp(false);
   };
 
   return (
     <>
       <Stack />
       <RatingModal
-        visible={showRating}
+        visible={showRatingModal}
         onRate={handleRate}
-        onClose={() => setShowRating(false)}
+        onClose={() => setShowRatingModal(false)}
         onDontAskAgain={handleDontAsk}
       />
     </>

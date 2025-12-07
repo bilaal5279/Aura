@@ -32,8 +32,8 @@ class BackgroundTracker {
 
         const options = {
             taskName: 'AuraTracker',
-            taskTitle: 'Find my device is protecting your devices',
-            taskDesc: 'Scanning for separation alerts...',
+            taskTitle: 'Find My Device is scanning',
+            taskDesc: 'Searching for your devices in the background...',
             taskIcon: {
                 name: 'ic_launcher',
                 type: 'mipmap',
