@@ -26,8 +26,7 @@
           "location",
           "bluetooth-central",
           "bluetooth-peripheral",
-          "fetch",
-          "processing"
+          "fetch"
         ],
         "NSBluetoothAlwaysUsageDescription": "Find my device needs Bluetooth to track your devices.",
         "NSBluetoothPeripheralUsageDescription": "Find my device needs Bluetooth to track your devices.",
