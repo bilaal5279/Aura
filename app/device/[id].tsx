@@ -1,11 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Blur, Canvas, Circle, vec } from '@shopify/react-native-skia';
+import { Blur, Canvas, Circle } from '@shopify/react-native-skia';
 import { Audio } from 'expo-av';
 
 import * as Haptics from 'expo-haptics';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Dimensions, Modal, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Dimensions, Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { Easing, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import { Confetti } from '../../src/components/Confetti';
 import { COLORS, SPACING } from '../../src/constants/theme';
@@ -15,7 +15,12 @@ import { useRadar } from '../../src/hooks/useRadar';
 import { RssiSmoother } from '../../src/services/tracking/KalmanFilter';
 
 const { width, height } = Dimensions.get('window');
-const CENTER = vec(width / 2, height / 3);
+const IS_SMALL_DEVICE = width < 380 || height < 700;
+const IS_VERY_SHORT = height < 600;
+
+// Responsive Sizes
+const ORB_BASE_RADIUS = IS_VERY_SHORT ? 50 : IS_SMALL_DEVICE ? 60 : 80;
+const VISUALIZER_HEIGHT = IS_VERY_SHORT ? height * 0.35 : height * 0.45;
 
 export default function DeviceDetailScreen() {
     const { id, name } = useLocalSearchParams();
@@ -38,25 +43,6 @@ export default function DeviceDetailScreen() {
 
     const [liveRssi, setLiveRssi] = useState<number | null>(null);
     const smoother = useRef(new RssiSmoother()).current;
-
-    // Removed specific scan effect to prevent stopping the global background scan.
-    // The global scan now uses allowDuplicates: true, providing real-time updates.
-
-    /*
-    useEffect(() => {
-        if (id) {
-            // Start specific scan for this device
-            bleService.startDeviceSpecificScan(id as string, deviceName, (rssi: number) => {
-                const smoothedRssi = smoother.filter(rssi);
-                setLiveRssi(smoothedRssi);
-            });
-
-            return () => {
-                bleService.stopScan();
-            };
-        }
-    }, [id, deviceName]);
-    */
 
     // Use the RSSI from the global state (which is now real-time)
     const rawRssi = activeDevice?.rssi || -100;
@@ -111,9 +97,6 @@ export default function DeviceDetailScreen() {
         if (distanceUnit === 'feet') return `${(meters * 3.28084).toFixed(1)} ft`;
         if (distanceUnit === 'meters') return `${meters.toFixed(1)} m`;
 
-        // Auto: Use feet if US locale (mocked here as simple toggle for now, or just default meters)
-        // For simplicity in this context, let's default to meters for auto unless we have locale info.
-        // Or we can just show meters.
         return `${meters.toFixed(1)} m`;
     };
 
@@ -185,8 +168,6 @@ export default function DeviceDetailScreen() {
                 });
 
                 const { sound } = await Audio.Sound.createAsync(
-                    // Using a generic beep sound from a reliable source or asset
-                    // For now, we'll use a placeholder. In a real app, require('./assets/beep.mp3')
                     require('../../assets/geiger.wav')
                 );
                 setSound(sound);
@@ -269,99 +250,101 @@ export default function DeviceDetailScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* Proximity Orb Visualization */}
-            <View style={styles.visualizerContainer}>
-                <Canvas style={{ width: width, height: width }}>
-                    {/* Core Orb */}
-                    <Circle cx={width / 2} cy={width / 2} r={80 + (signalStrength * 40)} color={orbColor} opacity={0.8}>
-                        <Blur blur={20} />
-                    </Circle>
+            <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+                {/* Proximity Orb Visualization */}
+                <View style={styles.visualizerContainer}>
+                    <Canvas style={{ width: width, height: width }}>
+                        {/* Core Orb */}
+                        <Circle cx={width / 2} cy={width / 2} r={ORB_BASE_RADIUS + (signalStrength * (ORB_BASE_RADIUS * 0.5))} color={orbColor} opacity={0.8}>
+                            <Blur blur={20} />
+                        </Circle>
 
-                    {/* Inner Core */}
-                    <Circle cx={width / 2} cy={width / 2} r={40} color="#FFF" opacity={0.9} />
+                        {/* Inner Core */}
+                        <Circle cx={width / 2} cy={width / 2} r={ORB_BASE_RADIUS * 0.5} color="#FFF" opacity={0.9} />
 
-                    {/* Pulse Ring 1 */}
-                    <Circle cx={width / 2} cy={width / 2} r={120} style="stroke" strokeWidth={2} color={orbColor} opacity={0.3 * signalStrength} />
+                        {/* Pulse Ring 1 */}
+                        <Circle cx={width / 2} cy={width / 2} r={ORB_BASE_RADIUS * 1.5} style="stroke" strokeWidth={2} color={orbColor} opacity={0.3 * signalStrength} />
 
-                    {/* Pulse Ring 2 */}
-                    <Circle cx={width / 2} cy={width / 2} r={180} style="stroke" strokeWidth={1} color={orbColor} opacity={0.1 * signalStrength} />
-                </Canvas>
-            </View>
-
-            {/* Signal Text Below Orb */}
-            <View style={styles.signalContainer}>
-                {/* Percentage Score */}
-                {/* Use theme text color for percentage in light mode, as white might be invisible */}
-                <Text style={[styles.signalValue, { color: colors.text }]}>
-                    {Math.max(0, Math.min(100, Math.round((rssi + 100) * 1.66)))}%
-                </Text>
-
-                {/* Conversational Status */}
-                <Text style={[styles.signalLabel, { color: isLost ? colors.textSecondary : orbColor }]}>
-                    {isLost ? "SEARCHING..." :
-                        signalStrength > 0.9 ? "IT'S RIGHT HERE!" :
-                            signalStrength > 0.7 ? "VERY CLOSE" :
-                                signalStrength > 0.5 ? "GETTING WARMER" :
-                                    signalStrength > 0.3 ? "COLD" : "MOVE AROUND TO FIND SIGNAL"}
-                </Text>
-
-                {/* Visual Bar */}
-                <View style={[styles.barContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }]}>
-                    <View style={[styles.barFill, {
-                        width: `${Math.max(0, Math.min(100, (rssi + 100) * 1.66))}%`,
-                        backgroundColor: orbColor
-                    }]} />
+                        {/* Pulse Ring 2 */}
+                        <Circle cx={width / 2} cy={width / 2} r={ORB_BASE_RADIUS * 2.25} style="stroke" strokeWidth={1} color={orbColor} opacity={0.1 * signalStrength} />
+                    </Canvas>
                 </View>
 
-                {/* Technical Detail */}
-                <Text style={[styles.dbmText, { color: colors.textSecondary }]}>Signal Strength: {Math.round(rssi)} dBm • {distanceText}</Text>
-            </View>
+                {/* Signal Text Below Orb */}
+                <View style={styles.signalContainer}>
+                    {/* Percentage Score */}
+                    {/* Use theme text color for percentage in light mode, as white might be invisible */}
+                    <Text style={[styles.signalValue, { color: colors.text }]}>
+                        {Math.max(0, Math.min(100, Math.round((rssi + 100) * 1.66)))}%
+                    </Text>
 
-            {/* Controls */}
-            <View style={styles.controlsContainer}>
-                <View style={[styles.controlRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                    <View style={styles.controlText}>
-                        <Text style={[styles.controlTitle, { color: colors.text }]}>Haptic Guidance</Text>
-                        <Text style={[styles.controlSubtitle, { color: colors.textSecondary }]}>Vibrate faster as you get closer</Text>
+                    {/* Conversational Status */}
+                    <Text style={[styles.signalLabel, { color: isLost ? colors.textSecondary : orbColor }]}>
+                        {isLost ? "SEARCHING..." :
+                            signalStrength > 0.9 ? "IT'S RIGHT HERE!" :
+                                signalStrength > 0.7 ? "VERY CLOSE" :
+                                    signalStrength > 0.5 ? "GETTING WARMER" :
+                                        signalStrength > 0.3 ? "COLD" : "MOVE AROUND TO FIND SIGNAL"}
+                    </Text>
+
+                    {/* Visual Bar */}
+                    <View style={[styles.barContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' }]}>
+                        <View style={[styles.barFill, {
+                            width: `${Math.max(0, Math.min(100, (rssi + 100) * 1.66))}%`,
+                            backgroundColor: orbColor
+                        }]} />
                     </View>
-                    <Switch
-                        value={vibrationEnabled}
-                        onValueChange={setVibrationEnabled}
-                        trackColor={{ false: '#333', true: orbColor }}
-                        thumbColor="#FFF"
-                    />
+
+                    {/* Technical Detail */}
+                    <Text style={[styles.dbmText, { color: colors.textSecondary }]}>Signal Strength: {Math.round(rssi)} dBm • {distanceText}</Text>
                 </View>
 
-                <View style={[styles.controlRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                    <View style={styles.controlText}>
-                        <Text style={[styles.controlTitle, { color: colors.text }]}>Sound Indicator</Text>
-                        <Text style={[styles.controlSubtitle, { color: colors.textSecondary }]}>Play Geiger-counter sound on phone</Text>
+                {/* Controls */}
+                <View style={styles.controlsContainer}>
+                    <View style={[styles.controlRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <View style={styles.controlText}>
+                            <Text style={[styles.controlTitle, { color: colors.text }]}>Haptic Guidance</Text>
+                            <Text style={[styles.controlSubtitle, { color: colors.textSecondary }]}>Vibrate faster as you get closer</Text>
+                        </View>
+                        <Switch
+                            value={vibrationEnabled}
+                            onValueChange={setVibrationEnabled}
+                            trackColor={{ false: '#333', true: orbColor }}
+                            thumbColor="#FFF"
+                        />
                     </View>
-                    <Switch
-                        value={soundEnabled}
-                        onValueChange={setSoundEnabled}
-                        trackColor={{ false: '#333', true: orbColor }}
-                        thumbColor="#FFF"
-                    />
+
+                    <View style={[styles.controlRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                        <View style={styles.controlText}>
+                            <Text style={[styles.controlTitle, { color: colors.text }]}>Sound Indicator</Text>
+                            <Text style={[styles.controlSubtitle, { color: colors.textSecondary }]}>Play Geiger-counter sound on phone</Text>
+                        </View>
+                        <Switch
+                            value={soundEnabled}
+                            onValueChange={setSoundEnabled}
+                            trackColor={{ false: '#333', true: orbColor }}
+                            thumbColor="#FFF"
+                        />
+                    </View>
+
+
+                    {/* I Found It Button */}
+                    <TouchableOpacity
+                        style={[
+                            styles.foundButton,
+                            {
+                                backgroundColor: isDark ? '#00FF9D' : '#00C853',
+                                shadowColor: isDark ? '#00FF9D' : '#00C853',
+                                shadowOpacity: isDark ? 0.5 : 0.3,
+                            }
+                        ]}
+                        onPress={handleFound}
+                    >
+                        <Ionicons name="checkmark-circle" size={24} color={isDark ? '#000' : '#FFF'} />
+                        <Text style={[styles.foundButtonText, { color: isDark ? '#000' : '#FFF' }]}>I Found It!</Text>
+                    </TouchableOpacity>
                 </View>
-
-
-                {/* I Found It Button */}
-                <TouchableOpacity
-                    style={[
-                        styles.foundButton,
-                        {
-                            backgroundColor: isDark ? '#00FF9D' : '#00C853',
-                            shadowColor: isDark ? '#00FF9D' : '#00C853',
-                            shadowOpacity: isDark ? 0.5 : 0.3,
-                        }
-                    ]}
-                    onPress={handleFound}
-                >
-                    <Ionicons name="checkmark-circle" size={24} color={isDark ? '#000' : '#FFF'} />
-                    <Text style={[styles.foundButtonText, { color: isDark ? '#000' : '#FFF' }]}>I Found It!</Text>
-                </TouchableOpacity>
-            </View>
+            </ScrollView>
 
             {/* Confetti Overlay */}
             {isFound && <Confetti />}
@@ -427,8 +410,9 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingTop: 60,
+        paddingTop: IS_SMALL_DEVICE ? 40 : 60,
         paddingHorizontal: SPACING.m,
+        paddingBottom: 10,
         zIndex: 10,
     },
     backButton: {
@@ -436,17 +420,17 @@ const styles = StyleSheet.create({
         borderRadius: 20,
     },
     headerTitle: {
-        fontSize: 18,
+        fontSize: IS_SMALL_DEVICE ? 16 : 18,
         fontWeight: '700',
         maxWidth: '70%',
         letterSpacing: 1,
     },
     visualizerContainer: {
-        height: height * 0.45,
+        height: VISUALIZER_HEIGHT,
         width: width,
         alignItems: 'center',
         justifyContent: 'center',
-        marginTop: -40, // Pull up slightly
+        marginTop: IS_VERY_SHORT ? -10 : -30,
     },
     signalContainer: {
         alignItems: 'center',
@@ -455,7 +439,7 @@ const styles = StyleSheet.create({
         height: 100, // Fixed height to prevent layout shifts
     },
     signalValue: {
-        fontSize: 48, // Reduced from 64 to prevent cutoff
+        fontSize: IS_SMALL_DEVICE ? 36 : 48,
         fontWeight: 'bold',
         textShadowColor: 'rgba(0,0,0,0.5)',
         textShadowRadius: 10,
@@ -463,7 +447,7 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     signalLabel: {
-        fontSize: 16, // Reduced slightly
+        fontSize: IS_SMALL_DEVICE ? 14 : 16,
         fontWeight: '900',
         letterSpacing: 2,
         marginTop: 4,
@@ -472,7 +456,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
     },
     barContainer: {
-        width: 200,
+        width: IS_SMALL_DEVICE ? 160 : 200,
         height: 6,
         borderRadius: 3,
         overflow: 'hidden',
@@ -490,7 +474,7 @@ const styles = StyleSheet.create({
         flex: 1,
         paddingHorizontal: SPACING.l,
         justifyContent: 'flex-start',
-        gap: SPACING.m, // Reduced gap slightly
+        gap: IS_SMALL_DEVICE ? SPACING.s : SPACING.m,
         paddingBottom: 40,
     },
     controlRow: {
@@ -551,36 +535,6 @@ const styles = StyleSheet.create({
     },
     settingDesc: {
         fontSize: 12,
-    },
-    historyButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: 'rgba(255,255,255,0.1)',
-        padding: SPACING.m,
-        borderRadius: 12,
-        gap: 8,
-        marginTop: SPACING.s,
-    },
-    historyButtonText: {
-        color: '#FFF',
-        fontSize: 16,
-        fontWeight: '600',
-    },
-    actionButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: COLORS.primary,
-        padding: SPACING.m,
-        borderRadius: 12,
-        gap: 8,
-        marginTop: SPACING.s,
-    },
-    actionButtonText: {
-        color: '#000',
-        fontSize: 16,
-        fontWeight: 'bold',
     },
     modalNote: {
         fontSize: 12,

@@ -8,10 +8,20 @@ import { useTheme } from '../src/context/ThemeContext';
 import { useRadar } from '../src/hooks/useRadar';
 
 const { width, height } = Dimensions.get('window');
+const IS_SMALL_DEVICE = width < 380 || height < 700;
+const IS_VERY_SHORT = height < 600;
+
+// Aggressively reduced sizes to prevent overlap on small screens
+const VISUAL_SIZE = IS_VERY_SHORT ? 140 : IS_SMALL_DEVICE ? 180 : 300;
+const NOTIF_WIDTH = IS_SMALL_DEVICE ? 220 : 280;
+const SPACING_DYNAMIC = IS_SMALL_DEVICE ? 12 : 32;
 
 // --- Components ---
 
 const RadarAnimation = ({ color }: { color: string }) => {
+    const size = VISUAL_SIZE;
+    const center = size / 2;
+    const rBase = size / 6; // Proportional radius
     const [t, setT] = useState(0);
     useEffect(() => {
         let animationFrameId: number;
@@ -24,26 +34,26 @@ const RadarAnimation = ({ color }: { color: string }) => {
     }, []);
 
     return (
-        <Canvas style={{ width: 300, height: 300 }}>
+        <Canvas style={{ width: size, height: size }}>
             {/* Ring 1 */}
             <Group opacity={(2 - t) / 2}>
-                <Circle cx={150} cy={150} r={50 + t * 50} color={color} style="stroke" strokeWidth={2} />
+                <Circle cx={center} cy={center} r={rBase + t * rBase} color={color} style="stroke" strokeWidth={2} />
             </Group>
             {/* Ring 2 (Offset) */}
             <Group opacity={(2 - ((t + 1) % 2)) / 2}>
-                <Circle cx={150} cy={150} r={50 + ((t + 1) % 2) * 50} color={color} style="stroke" strokeWidth={2} />
+                <Circle cx={center} cy={center} r={rBase + ((t + 1) % 2) * rBase} color={color} style="stroke" strokeWidth={2} />
             </Group>
             {/* Center Dot */}
-            <Circle cx={150} cy={150} r={15} color={color}>
+            <Circle cx={center} cy={center} r={size * 0.05} color={color}>
                 <Paint style="fill" />
                 <Blur blur={2} />
             </Circle>
             {/* Scanning Line Effect */}
-            <Group origin={{ x: 150, y: 150 }} transform={[{ rotate: t * Math.PI * 2 }]}>
-                <Circle cx={150} cy={150} r={100} color={color} opacity={0.1}>
+            <Group origin={{ x: center, y: center }} transform={[{ rotate: t * Math.PI * 2 }]}>
+                <Circle cx={center} cy={center} r={size * 0.33} color={color} opacity={0.1}>
                     <RadialGradient
-                        c={vec(150, 150)}
-                        r={100}
+                        c={vec(center, center)}
+                        r={size * 0.33}
                         colors={['transparent', color]}
                         positions={[0.8, 1]}
                     />
@@ -107,15 +117,15 @@ const ShieldAnimation = ({ color }: { color: string }) => {
     }, []);
 
     return (
-        <View style={{ width: 200, height: 200, justifyContent: 'center', alignItems: 'center' }}>
+        <View style={{ width: VISUAL_SIZE * 0.66, height: VISUAL_SIZE * 0.66, justifyContent: 'center', alignItems: 'center' }}>
             <Animated.View style={{ transform: [{ scale }] }}>
-                <Ionicons name="shield-checkmark" size={140} color={color} />
+                <Ionicons name="shield-checkmark" size={VISUAL_SIZE * 0.46} color={color} />
             </Animated.View>
             {/* Floating particles */}
             <Canvas style={StyleSheet.absoluteFill}>
-                <Circle cx={180} cy={40} r={4} color={color} opacity={0.6} />
-                <Circle cx={20} cy={160} r={6} color={color} opacity={0.4} />
-                <Circle cx={160} cy={180} r={3} color={color} opacity={0.8} />
+                <Circle cx={VISUAL_SIZE * 0.6} cy={VISUAL_SIZE * 0.13} r={4} color={color} opacity={0.6} />
+                <Circle cx={VISUAL_SIZE * 0.06} cy={VISUAL_SIZE * 0.53} r={6} color={color} opacity={0.4} />
+                <Circle cx={VISUAL_SIZE * 0.53} cy={VISUAL_SIZE * 0.6} r={3} color={color} opacity={0.8} />
             </Canvas>
         </View>
     );
@@ -143,14 +153,17 @@ const PremiumUnlock = ({ color }: { color: string }) => {
         outputRange: ['0deg', '360deg']
     });
 
+    const size = VISUAL_SIZE;
+    const iconOffset = size * 0.35; // How far icons orbit from center
+
     return (
-        <View style={{ width: 300, height: 300, justifyContent: 'center', alignItems: 'center' }}>
+        <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
             {/* Glowing background */}
             <Animated.View style={{
                 position: 'absolute',
-                width: 200,
-                height: 200,
-                borderRadius: 100,
+                width: size * 0.66,
+                height: size * 0.66,
+                borderRadius: size * 0.33,
                 backgroundColor: color,
                 opacity: 0.2,
                 transform: [{ scale: pulse }]
@@ -159,24 +172,24 @@ const PremiumUnlock = ({ color }: { color: string }) => {
             {/* Orbiting Icons */}
             <Animated.View style={{
                 position: 'absolute',
-                width: 260,
-                height: 260,
+                width: size * 0.86,
+                height: size * 0.86,
                 transform: [{ rotate: spin }]
             }}>
                 <View style={[styles.orbitIcon, { top: 0, alignSelf: 'center', backgroundColor: color }]}>
                     <Ionicons name="key" size={16} color="#FFF" />
                 </View>
-                <View style={[styles.orbitIcon, { bottom: 60, left: 10, backgroundColor: color }]}>
+                <View style={[styles.orbitIcon, { bottom: size * 0.2, left: size * 0.03, backgroundColor: color }]}>
                     <Ionicons name="wallet" size={16} color="#FFF" />
                 </View>
-                <View style={[styles.orbitIcon, { bottom: 60, right: 10, backgroundColor: color }]}>
+                <View style={[styles.orbitIcon, { bottom: size * 0.2, right: size * 0.03, backgroundColor: color }]}>
                     <Ionicons name="headset" size={16} color="#FFF" />
                 </View>
             </Animated.View>
 
             {/* Central Shield */}
             <View style={[styles.premiumShield, { backgroundColor: color }]}>
-                <Ionicons name="shield-checkmark" size={60} color="#FFF" />
+                <Ionicons name="shield-checkmark" size={size * 0.2} color="#FFF" />
             </View>
         </View>
     );
@@ -254,9 +267,13 @@ export default function OnboardingScreen() {
 
                 <View style={styles.textContainer}>
                     {item.benefits && (
-                        <View style={{ marginBottom: 10, alignItems: 'center' }}>
+                        <View style={{ marginBottom: IS_SMALL_DEVICE ? 4 : 10, alignItems: 'center' }}>
                             {item.benefits.map((benefit, i) => (
-                                <Text key={i} style={[styles.benefitText, { color: colors.text }]}>✓ {benefit}</Text>
+                                <Text key={i} style={[styles.benefitText, {
+                                    color: colors.text,
+                                    fontSize: IS_SMALL_DEVICE ? 14 : 16,
+                                    marginVertical: IS_SMALL_DEVICE ? 2 : 4
+                                }]}>✓ {benefit}</Text>
                             ))}
                         </View>
                     )}
@@ -372,7 +389,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'flex-end',
         paddingHorizontal: SPACING.l,
-        marginTop: 40,
+        marginTop: IS_SMALL_DEVICE ? 10 : 40,
         zIndex: 10,
     },
     skipButton: {
@@ -387,34 +404,33 @@ const styles = StyleSheet.create({
         flex: 1,
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingBottom: 40,
+        paddingBottom: IS_SMALL_DEVICE ? 20 : 40,
     },
     visualContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
         width: '100%',
-        // backgroundColor: 'rgba(255,0,0,0.1)', // Debug
     },
     textContainer: {
         width: '100%',
         paddingHorizontal: SPACING.xl,
         alignItems: 'center',
-        marginBottom: SPACING.xl,
+        marginBottom: IS_SMALL_DEVICE ? 10 : SPACING.xl,
     },
     title: {
-        fontSize: 36,
+        fontSize: IS_SMALL_DEVICE ? 28 : 36,
         fontWeight: '800',
         textAlign: 'center',
-        marginBottom: SPACING.m,
+        marginBottom: IS_SMALL_DEVICE ? 8 : SPACING.m,
         letterSpacing: -1,
-        lineHeight: 42,
+        lineHeight: IS_SMALL_DEVICE ? 32 : 42,
     },
     description: {
-        fontSize: 17,
+        fontSize: IS_SMALL_DEVICE ? 15 : 17,
         textAlign: 'center',
-        lineHeight: 26,
-        marginBottom: SPACING.l,
+        lineHeight: IS_SMALL_DEVICE ? 22 : 26,
+        marginBottom: IS_SMALL_DEVICE ? 16 : SPACING.l,
         opacity: 0.8,
         maxWidth: '90%',
     },
@@ -432,13 +448,13 @@ const styles = StyleSheet.create({
     },
     footer: {
         padding: SPACING.xl,
-        paddingBottom: 50,
+        paddingBottom: IS_SMALL_DEVICE ? 20 : 50,
         alignItems: 'center',
     },
     pagination: {
         flexDirection: 'row',
         justifyContent: 'center',
-        marginBottom: SPACING.xl,
+        marginBottom: IS_SMALL_DEVICE ? 16 : SPACING.xl,
         gap: 8,
         height: 10,
         alignItems: 'center',
@@ -475,7 +491,7 @@ const styles = StyleSheet.create({
     },
     // Notification Styles
     notificationCard: {
-        width: 280,
+        width: NOTIF_WIDTH,
         padding: 12,
         borderRadius: 16,
         borderWidth: 1,
@@ -533,9 +549,9 @@ const styles = StyleSheet.create({
         elevation: 6,
     },
     premiumShield: {
-        width: 100,
-        height: 100,
-        borderRadius: 20,
+        width: VISUAL_SIZE * 0.33,
+        height: VISUAL_SIZE * 0.33,
+        borderRadius: (VISUAL_SIZE * 0.33) / 5,
         justifyContent: 'center',
         alignItems: 'center',
         shadowColor: "#000",

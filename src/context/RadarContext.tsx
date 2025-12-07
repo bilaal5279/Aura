@@ -402,6 +402,29 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 setTimeout(() => startScan(), 2000);
             }
         );
+
+        // DEV ONLY: Mock Device
+        if (__DEV__) {
+            const mockInterval = setInterval(() => {
+                if (!isScanningRef.current) {
+                    clearInterval(mockInterval);
+                    return;
+                }
+                const now = Date.now();
+                const mockId = 'mock-device-01';
+                const mockRssi = -Math.floor(Math.random() * 40 + 40); // -40 to -80
+
+                const currentMap = devicesRef.current;
+                currentMap.set(mockId, {
+                    device: { id: mockId, name: 'Test Device Simulator', localName: 'Test Device Simulator', rssi: mockRssi } as any,
+                    rssi: mockRssi,
+                    lastSeen: now,
+                    isBonded: false,
+                    customName: 'Test Device Simulator'
+                });
+                syncState();
+            }, 1000);
+        }
     };
 
     const stopScan = () => {
