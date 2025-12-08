@@ -87,20 +87,22 @@ const DeviceItem = ({ item, isPro, onPress }: { item: ScannedDevice, isPro: bool
 export default function Dashboard() {
     const router = useRouter();
     const { colors, isDark } = useTheme();
-    const { isScanning, devices, bluetoothState, connectedIds, trackedDevices, toggleTracking, updateDeviceSettings, backgroundTrackingEnabled, isPro, showPaywall, hasSeenOnboarding, freeScanUsed } = useRadar();
+    const { isScanning, devices, bluetoothState, connectedIds, trackedDevices, toggleTracking, updateDeviceSettings, backgroundTrackingEnabled, isPro, showPaywall, hasSeenOnboarding, freeScanUsed, isOnboardingLoaded } = useRadar();
     const [selectedDevice, setSelectedDevice] = useState<ScannedDevice | null>(null);
     const [showNotifyModal, setShowNotifyModal] = useState(false);
 
     // Redirect to Onboarding if not seen
     React.useEffect(() => {
-        if (!hasSeenOnboarding) {
+        if (isOnboardingLoaded && !hasSeenOnboarding) {
             // Small delay to ensure navigation is ready
             const timer = setTimeout(() => {
                 router.replace('/onboarding');
             }, 100);
             return () => clearTimeout(timer);
         }
-    }, [hasSeenOnboarding]);
+    }, [hasSeenOnboarding, isOnboardingLoaded]);
+
+
 
     // Stable sort order for unknown devices
     const [stableUnknownIds, setStableUnknownIds] = React.useState<string[]>([]);
@@ -138,6 +140,11 @@ export default function Dashboard() {
             .map(id => devices.find((d: ScannedDevice) => d.device.id === id))
             .filter((d: ScannedDevice | undefined): d is ScannedDevice => !!d);
     }, [devices, stableUnknownIds]);
+
+    // Prevent Dashboard flash while loading or redirecting
+    if (!isOnboardingLoaded || !hasSeenOnboarding) {
+        return null; // Or a splash screen
+    }
 
     const handleDevicePress = (device: ScannedDevice) => {
         if (device.rssi === null) {

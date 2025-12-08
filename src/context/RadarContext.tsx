@@ -61,6 +61,7 @@ interface RadarContextType {
     showRatingModal: boolean;
     setShowRatingModal: (show: boolean) => void;
     logDeviceFound: () => Promise<void>;
+    isOnboardingLoaded: boolean;
 }
 
 const RadarContext = createContext<RadarContextType>({
@@ -97,6 +98,7 @@ const RadarContext = createContext<RadarContextType>({
     showRatingModal: false,
     setShowRatingModal: () => { },
     logDeviceFound: async () => { },
+    isOnboardingLoaded: false,
 });
 
 export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -115,7 +117,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const trackedDevicesRef = useRef(trackedDevices);
     const [isPro, setIsPro] = useState(false);
     const [currentOffering, setCurrentOffering] = useState<PurchasesOffering | null>(null);
-    const [hasSeenOnboarding, setHasSeenOnboarding] = useState(true);
+    const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
     const [isOnboardingLoaded, setIsOnboardingLoaded] = useState(false);
 
     useEffect(() => {
@@ -479,6 +481,9 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     useEffect(() => {
+        // ONLY initialize scanning/permissions if onboarding is complete
+        if (!isOnboardingLoaded || !hasSeenOnboarding) return;
+
         const init = async () => {
             await notificationService.requestPermissions();
             const state = await bleService.getBluetoothState();
@@ -586,7 +591,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             stopScan();
             clearInterval(interval);
         };
-    }, []);
+    }, [isOnboardingLoaded, hasSeenOnboarding]);
 
     const devices = Array.from(devicesMap.values()).sort((a, b) => {
         const aConnected = connectedIds.has(a.device.id);
@@ -613,7 +618,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         await AsyncStorage.setItem('distanceUnit', unit);
     };
 
-    const [backgroundTrackingEnabled, setBackgroundTrackingEnabled] = useState(true);
+    const [backgroundTrackingEnabled, setBackgroundTrackingEnabled] = useState(false);
     useEffect(() => {
         const loadBgSettings = async () => {
             const bg = await AsyncStorage.getItem('backgroundTrackingEnabled');
@@ -621,6 +626,14 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         };
         loadBgSettings();
     }, []);
+
+    // Enforce Pro status for background tracking
+    useEffect(() => {
+        if (!isPro && backgroundTrackingEnabled) {
+            toggleBackgroundTracking(false);
+        }
+    }, [isPro, backgroundTrackingEnabled]);
+
     const toggleBackgroundTracking = async (enabled: boolean) => {
         setBackgroundTrackingEnabled(enabled);
         await AsyncStorage.setItem('backgroundTrackingEnabled', JSON.stringify(enabled));
@@ -645,6 +658,13 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const handleDisclosureAccept = async () => {
         setShowLocationDisclosure(false);
+
+        if (!isPro) {
+            // If they accept disclosure but aren't Pro, show paywall now
+            showPaywall();
+            return;
+        }
+
         // Request the actual permission
         const granted = await bleService.requestBackgroundLocationPermission();
         if (granted) {
@@ -664,10 +684,7 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const safeToggleBackgroundTracking = async (enabled: boolean) => {
         if (enabled) {
-            if (!isPro) {
-                showPaywall();
-                return;
-            }
+            // Show disclosure FIRST, regardless of Pro status
             setShowLocationDisclosure(true);
         } else {
             toggleBackgroundTracking(false);
@@ -712,7 +729,8 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             resetLocationDisclosure,
             showRatingModal,
             setShowRatingModal,
-            logDeviceFound
+            logDeviceFound,
+            isOnboardingLoaded
         }}>
             {children}
             <LocationDisclosureModal
