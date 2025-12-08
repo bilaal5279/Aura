@@ -97,17 +97,6 @@
         }
       ],
       [
-        "with-rn-bluetooth-classic",
-        {
-          "peripheralUsageDescription": "Allow Find my device to check bluetooth peripheral info",
-          "alwaysUsageDescription": "Allow Find my device to always use bluetooth info",
-          "protocols": [
-            "com.myCompany.p1",
-            "com.myCompany.p2"
-          ]
-        }
-      ],
-      [
         "expo-build-properties",
         {
           "android": {
