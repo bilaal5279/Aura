@@ -23,7 +23,6 @@
       },
       "infoPlist": {
         "UIBackgroundModes": [
-          "location",
           "bluetooth-central",
           "bluetooth-peripheral",
           "fetch"

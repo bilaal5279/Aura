@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import * as StoreReview from 'expo-store-review';
 import React, { createContext, useEffect, useRef, useState } from 'react';
-import { AppState, Platform } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import { Device } from 'react-native-ble-plx';
 import Purchases, { CustomerInfo, PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import RevenueCatUI from 'react-native-purchases-ui';
@@ -404,6 +404,17 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const startScan = async () => {
         if (isScanningRef.current) return;
+
+        // Android Prominent Disclosure Check (Gatekeeper)
+        if (Platform.OS === 'android') {
+            const shown = await AsyncStorage.getItem('hasShownDisclosure');
+            if (!shown) {
+                console.log('[RadarContext] blocking startScan - disclosure not shown');
+                setShowLocationDisclosure(true);
+                return;
+            }
+        }
+
         const state = await bleService.getBluetoothState();
         setBluetoothState(state);
         if (state !== 'PoweredOn') { await bleService.enableBluetooth(); return; }
@@ -485,6 +496,15 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!isOnboardingLoaded || !hasSeenOnboarding) return;
 
         const init = async () => {
+            // Android Prominent Disclosure Check
+            if (Platform.OS === 'android') {
+                const shown = await AsyncStorage.getItem('hasShownDisclosure');
+                if (!shown) {
+                    setShowLocationDisclosure(true);
+                    return; // Block default startScan until they accept/decline
+                }
+            }
+
             await notificationService.requestPermissions();
             const state = await bleService.getBluetoothState();
             setBluetoothState(state);
@@ -658,28 +678,45 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const handleDisclosureAccept = async () => {
         setShowLocationDisclosure(false);
+        // Save that we've shown it
+        await AsyncStorage.setItem('hasShownDisclosure', 'true');
 
-        if (!isPro) {
-            // If they accept disclosure but aren't Pro, show paywall now
-            showPaywall();
-            return;
-        }
-
-        // Request the actual permission
-        const granted = await bleService.requestBackgroundLocationPermission();
-        if (granted) {
-            // Proceed with enabling logic
-            setBackgroundTrackingEnabled(true);
-            await AsyncStorage.setItem('backgroundTrackingEnabled', JSON.stringify(true));
-            if (isScanning) await bleService.startBackgroundTracking();
-        } else {
-            console.log('User accepted disclosure but denied system permission');
+        // Request basic permissions (Foreground)
+        // We do NOT request background permission here to avoid the settings push
+        // The user can enable improved tracking in settings later if they want
+        const fgGranted = await bleService.requestPermissions();
+        if (fgGranted) {
+            startScan();
         }
     };
 
-    const handleDisclosureDecline = () => {
-        setShowLocationDisclosure(false);
-        setPendingBackgroundToggle(null); // Clear intent
+    const handleDisclosureDecline = async () => {
+        // Show alert explaining necessity
+        Alert.alert(
+            "Permission Required",
+            "This app cannot scan for lost devices without Location access. Please accept to continue.",
+            [
+                {
+                    text: "Back",
+                    style: "cancel",
+                    onPress: () => {
+                        // Keep modal open or re-open?
+                        // If we closed it, open it again
+                        setShowLocationDisclosure(true);
+                    }
+                },
+                {
+                    text: "Exit App",
+                    style: "destructive",
+                    onPress: () => {
+                        // BackHandler.exitApp() logic usually
+                        // We can't strictly force kill, but we can minimize or just do nothing (leave them blocked)
+                        // For now, let's just leave the modal open if they cancel the alert?
+                        setShowLocationDisclosure(true);
+                    }
+                }
+            ]
+        );
     };
 
     const safeToggleBackgroundTracking = async (enabled: boolean) => {

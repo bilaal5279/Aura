@@ -62,34 +62,21 @@ export const LocationDisclosureModal: React.FC<LocationDisclosureModalProps> = (
                     <View style={[styles.iconContainer, { backgroundColor: isDark ? 'rgba(74, 222, 128, 0.15)' : 'rgba(74, 222, 128, 0.1)' }]}>
                         <Ionicons name="location" size={32} color={COLORS.primary} />
                         <View style={[styles.badge, { backgroundColor: COLORS.primary, borderColor: colors.surface }]}>
-                            <Ionicons name="shield-checkmark" size={12} color={isDark ? '#000' : '#FFF'} />
+                            <Ionicons name="bluetooth" size={12} color={isDark ? '#000' : '#FFF'} />
                         </View>
                     </View>
 
-                    <Text style={[styles.title, { color: colors.text }]}>Enable Background Tracking</Text>
+                    <Text style={[styles.title, { color: colors.text }]}>Location Permission</Text>
 
                     <Text style={[styles.description, { color: colors.textSecondary }]}>
-                        To alert you when you leave a device behind, Find My Device needs to access your location even when the app is closed or not in use.
+                        To scan for nearby Bluetooth devices (like your lost items), Android requires Location access.
                     </Text>
 
                     <View style={[styles.featureContainer, { backgroundColor: colors.surfaceVariant }]}>
-                        <View style={styles.featureRow}>
-                            <Ionicons name="notifications" size={20} color={colors.textSecondary} />
-                            <Text style={[styles.featureText, { color: colors.text }]}>
-                                Detects when you walk away from your items
-                            </Text>
-                        </View>
-                        <View style={styles.featureRow}>
-                            <Ionicons name="shield" size={20} color={colors.textSecondary} />
-                            <Text style={[styles.featureText, { color: colors.text }]}>
-                                Runs efficiently in the background
-                            </Text>
-                        </View>
+                        <Text style={[styles.featureText, { color: colors.text, textAlign: 'center' }]}>
+                            This app does not collect, store, or share your personal location data. It is only used locally to detect devices.
+                        </Text>
                     </View>
-
-                    <Text style={[styles.disclaimer, { color: colors.textSecondary }]}>
-                        Your location is never shared with third parties.
-                    </Text>
 
                     <View style={styles.buttonsContainer}>
                         <TouchableOpacity
@@ -97,7 +84,7 @@ export const LocationDisclosureModal: React.FC<LocationDisclosureModalProps> = (
                             onPress={onAccept}
                             activeOpacity={0.8}
                         >
-                            <Text style={[styles.buttonText, { color: isDark ? '#064E3B' : '#FFF' }]}>Enable & Continue</Text>
+                            <Text style={[styles.buttonText, { color: isDark ? '#064E3B' : '#FFF' }]}>OK, I Understand</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
@@ -105,7 +92,7 @@ export const LocationDisclosureModal: React.FC<LocationDisclosureModalProps> = (
                             onPress={onDecline}
                             activeOpacity={0.6}
                         >
-                            <Text style={[styles.textButtonText, { color: colors.textSecondary }]}>No, thanks</Text>
+                            <Text style={[styles.textButtonText, { color: colors.textSecondary }]}>Cancel</Text>
                         </TouchableOpacity>
                     </View>
                 </Animated.View>
@@ -138,14 +125,28 @@ const styles = StyleSheet.create({
         shadowRadius: 20,
         elevation: 10,
     },
+    modalContent: {
+        width: '85%',
+        maxWidth: 340,
+        borderRadius: 28,
+        padding: 24,
+        alignItems: 'center',
+        elevation: 24,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.58,
+        shadowRadius: 16.00,
+    },
     iconContainer: {
+        marginBottom: 16,
+    },
+    iconCircle: {
         width: 64,
         height: 64,
         borderRadius: 32,
         justifyContent: 'center',
         alignItems: 'center',
-        marginBottom: SPACING.l,
-        position: 'relative',
+        marginBottom: 8,
     },
     badge: {
         position: 'absolute',
@@ -159,14 +160,13 @@ const styles = StyleSheet.create({
         fontSize: 20,
         fontWeight: 'bold',
         textAlign: 'center',
-        marginBottom: SPACING.s,
+        marginBottom: 12,
     },
     description: {
         fontSize: 15,
         textAlign: 'center',
-        marginBottom: SPACING.l,
         lineHeight: 22,
-        opacity: 0.9,
+        marginBottom: 4,
     },
     featureContainer: {
         width: '100%',
@@ -175,20 +175,9 @@ const styles = StyleSheet.create({
         marginBottom: SPACING.l,
         gap: 12,
     },
-    featureRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 12,
-    },
     featureText: {
         fontSize: 14,
-        flex: 1,
-    },
-    disclaimer: {
-        fontSize: 12,
-        textAlign: 'center',
-        marginBottom: SPACING.xl,
-        opacity: 0.7,
+        lineHeight: 20,
     },
     buttonsContainer: {
         width: '100%',
