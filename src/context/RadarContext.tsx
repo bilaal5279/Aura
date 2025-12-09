@@ -514,10 +514,19 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         const subscription = AppState.addEventListener('change', nextAppState => {
             if (nextAppState === 'active') {
+                // Determine if we need to stop the background scan before starting UI scan
+                if (Platform.OS === 'ios' && backgroundTrackingEnabled) {
+                    bleService.stopBackgroundTracking(); // Stop UUID scan
+                }
                 startScan();
                 trackedDevicesRef.current.forEach((settings, id) => startMonitoring(id, settings));
             } else if (nextAppState === 'background') {
-                stopScan();
+                stopScan(); // Stop UI Scan (High power / Low Latency)
+
+                // On iOS, start the specific background scan
+                if (Platform.OS === 'ios' && backgroundTrackingEnabled) {
+                    bleService.startBackgroundTracking();
+                }
             }
         });
 
@@ -647,14 +656,9 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         loadBgSettings();
     }, []);
 
-    // Enforce Pro status for background tracking
-    useEffect(() => {
-        if (!isPro && backgroundTrackingEnabled) {
-            toggleBackgroundTracking(false);
-        }
-    }, [isPro, backgroundTrackingEnabled]);
+    // Enforce Pro status logic moved below toggle functions to avoid reference errors
 
-    const toggleBackgroundTracking = async (enabled: boolean) => {
+    const performToggleBackgroundTracking = async (enabled: boolean) => {
         setBackgroundTrackingEnabled(enabled);
         await AsyncStorage.setItem('backgroundTrackingEnabled', JSON.stringify(enabled));
         if (enabled) {
@@ -682,11 +686,11 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         await AsyncStorage.setItem('hasShownDisclosure', 'true');
 
         // Request basic permissions (Foreground)
-        // We do NOT request background permission here to avoid the settings push
-        // The user can enable improved tracking in settings later if they want
         const fgGranted = await bleService.requestPermissions();
         if (fgGranted) {
             startScan();
+            // CRITICAL FIX: Actually enable the tracking state!
+            performToggleBackgroundTracking(true);
         }
     };
 
@@ -700,8 +704,6 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     text: "Back",
                     style: "cancel",
                     onPress: () => {
-                        // Keep modal open or re-open?
-                        // If we closed it, open it again
                         setShowLocationDisclosure(true);
                     }
                 },
@@ -709,9 +711,6 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                     text: "Exit App",
                     style: "destructive",
                     onPress: () => {
-                        // BackHandler.exitApp() logic usually
-                        // We can't strictly force kill, but we can minimize or just do nothing (leave them blocked)
-                        // For now, let's just leave the modal open if they cancel the alert?
                         setShowLocationDisclosure(true);
                     }
                 }
@@ -721,16 +720,37 @@ export const RadarProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const safeToggleBackgroundTracking = async (enabled: boolean) => {
         if (enabled) {
-            // Show disclosure FIRST, regardless of Pro status
-            setShowLocationDisclosure(true);
+            // Android: Show disclosure if not already shown? Or always?
+            // Previous logic was "Always show when enabling".
+            // However, typical flow is show ONCE.
+            // Let's check if shown.
+            if (Platform.OS === 'android') {
+                const shown = await AsyncStorage.getItem('hasShownDisclosure');
+                if (!shown) {
+                    setShowLocationDisclosure(true);
+                } else {
+                    // If already shown, just enable
+                    performToggleBackgroundTracking(true);
+                }
+            } else {
+                // iOS: No disclosure needed (removed Location dependency)
+                performToggleBackgroundTracking(true);
+            }
         } else {
-            toggleBackgroundTracking(false);
+            performToggleBackgroundTracking(false);
         }
     };
 
     const resetLocationDisclosure = async () => {
         setShowLocationDisclosure(true);
     };
+
+    // Enforce Pro status for background tracking
+    useEffect(() => {
+        if (!isPro && backgroundTrackingEnabled) {
+            performToggleBackgroundTracking(false);
+        }
+    }, [isPro, backgroundTrackingEnabled]);
 
     return (
         <RadarContext.Provider value={{

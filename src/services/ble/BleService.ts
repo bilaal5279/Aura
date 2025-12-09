@@ -176,15 +176,104 @@ class BleService {
 
     async startBackgroundTracking() {
         console.log('Background tracking active...');
-        await backgroundTracker.start(async () => {
-            // This task runs in the background
-            await this.performBackgroundScan();
-        });
+        if (Platform.OS === 'ios') {
+            await this.startIOSBackgroundScan();
+        } else {
+            await backgroundTracker.start(async () => {
+                // This task runs in the background (Android only now)
+                await this.performBackgroundScan();
+            });
+        }
     }
 
     async stopBackgroundTracking() {
         console.log('Stopping background tracking...');
-        await backgroundTracker.stop();
+        if (Platform.OS === 'ios') {
+            await this.stopScan();
+        } else {
+            await backgroundTracker.stop();
+        }
+    }
+
+    /**
+     * Starts a continuous scan for iOS Background operation.
+     * Requires Service UUIDs to work in background.
+     */
+    async startIOSBackgroundScan() {
+        console.log('[BleService] Starting iOS Background Scan...');
+
+        // 1. Get tracked devices
+        let trackedDevices = new Map<string, DeviceSettings>();
+        try {
+            const json = await AsyncStorage.getItem('trackedDevices');
+            if (json) {
+                const raw = JSON.parse(json);
+                if (!Array.isArray(raw)) {
+                    trackedDevices = new Map<string, DeviceSettings>(Object.entries(raw));
+                }
+            }
+        } catch (e) {
+            console.warn('[BleService] Failed to load tracked devices', e);
+            return;
+        }
+
+        if (trackedDevices.size === 0) return;
+
+        // 2. Extract UUIDs
+        const serviceUUIDs = new Set<string>();
+        for (const [_, settings] of trackedDevices) {
+            if (settings.serviceUUIDs) {
+                settings.serviceUUIDs.forEach(uuid => serviceUUIDs.add(uuid));
+            }
+        }
+
+        // iOS requires at least one UUID. If we don't have any specific ones, 
+        // we might fail to scan in background effectively for those devices.
+        // We add common ones as fallback, but specific is better.
+        if (serviceUUIDs.size === 0) {
+            serviceUUIDs.add('180F'); // Battery
+            serviceUUIDs.add('180A'); // Device Info
+            serviceUUIDs.add('1800'); // Generic Access
+        }
+
+        const scanUUIDs = Array.from(serviceUUIDs);
+        console.log('[BleService] iOS Background Scan UUIDs:', scanUUIDs);
+
+        // 3. Start Scan (Continuous)
+        // allowDuplicates is ignored in background on iOS usually, but we set it anyway.
+        this.manager.startDeviceScan(
+            scanUUIDs,
+            { scanMode: ScanMode.LowLatency, allowDuplicates: true },
+            (error, device) => {
+                if (error) {
+                    console.warn('[BleService] iOS BG Scan Error:', error);
+                    return;
+                }
+                // Logic to handle found device (notify)
+                if (device && device.id && trackedDevices.has(device.id)) {
+                    this.handleBackgroundDeviceFound(device, trackedDevices.get(device.id)!);
+                }
+            }
+        );
+    }
+
+    private async handleBackgroundDeviceFound(device: Device, settings: DeviceSettings) {
+        if (settings.notifyOnFound) {
+            const lastNotifiedKey = `last_notified_found_${device.id}`;
+            const lastNotified = await AsyncStorage.getItem(lastNotifiedKey);
+            const now = Date.now();
+
+            if (!lastNotified || (now - parseInt(lastNotified) > 5 * 60 * 1000)) {
+                console.log(`[BleService] iOS BG Found: "${settings.name}"`);
+                notificationService.sendNotification(
+                    'Device Found!',
+                    `${settings.name || 'Device'} is nearby.`
+                );
+                await AsyncStorage.setItem(lastNotifiedKey, now.toString());
+            }
+        }
+        // Reset lost flag
+        await AsyncStorage.removeItem(`has_notified_lost_${device.id}`);
     }
 
     async performBackgroundScan() {
